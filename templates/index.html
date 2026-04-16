@@ -158,6 +158,49 @@
       user-select: none;
     }
 
+    /* ── thinking indicator ──────────────────────────────────── */
+    #thinking-wrap {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      margin-top: 14px;
+    }
+
+    #thinking-wrap.active { display: flex; }
+
+    #thinking-track {
+      width: 140px;
+      height: 1px;
+      background: #1c1c1c;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #thinking-track::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -35%;
+      width: 35%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      animation: scan 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes scan {
+      0%   { left: -35%; }
+      100% { left: 110%; }
+    }
+
+    #thinking-timer {
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      color: #2e2e2e;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum";
+    }
+
     /* ── chat ────────────────────────────────────────────────── */
     #chat {
       flex: 1 1 auto;
@@ -305,6 +348,10 @@
     <div id="orb"></div>
     <div id="orb-label">C A I N E</div>
     <div id="emo-bar"></div>
+    <div id="thinking-wrap">
+      <div id="thinking-track"></div>
+      <div id="thinking-timer">0.0s</div>
+    </div>
   </div>
 
   <div id="chat"></div>
@@ -324,12 +371,32 @@
 
 </div>
 <script>
-  const orb     = document.getElementById('orb');
-  const emoBar  = document.getElementById('emo-bar');
-  const chat    = document.getElementById('chat');
-  const input   = document.getElementById('msg-input');
-  const sendBtn = document.getElementById('send-btn');
+  const orb           = document.getElementById('orb');
+  const emoBar        = document.getElementById('emo-bar');
+  const thinkingWrap  = document.getElementById('thinking-wrap');
+  const thinkingTimer = document.getElementById('thinking-timer');
+  const chat          = document.getElementById('chat');
+  const input         = document.getElementById('msg-input');
+  const sendBtn       = document.getElementById('send-btn');
   let busy = false;
+  let timerInterval = null;
+
+  function startTimer() {
+    const start = Date.now();
+    thinkingWrap.classList.add('active');
+    thinkingTimer.textContent = '0.0s';
+    timerInterval = setInterval(() => {
+      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+      thinkingTimer.textContent = elapsed + 's';
+    }, 100);
+  }
+
+  function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    thinkingWrap.classList.remove('active');
+    thinkingTimer.textContent = '0.0s';
+  }
 
   // auto-resize
   input.addEventListener('input', () => {
@@ -399,6 +466,7 @@
     addMsg('user', txt);
     orb.classList.add('thinking');
     emoBar.textContent = '';
+    startTimer();
 
     try {
       const res  = await fetch('/chat', {
@@ -408,6 +476,7 @@
       });
       const d = await res.json();
       orb.classList.remove('thinking');
+      stopTimer();
       updateOrb(d);
 
       const meta = [
@@ -418,6 +487,7 @@
       addMsg('caine', d.response || '...', meta);
     } catch {
       orb.classList.remove('thinking');
+      stopTimer();
       addMsg('caine', '...');
     }
 
