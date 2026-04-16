@@ -1,0 +1,89 @@
+# CAINE NEURAL ARCHITECTURE
+# .syn — synaptic syntax
+# All values 0.0→1.0. No binary. No booleans.
+#
+# This file defines HOW neurons connect and fire.
+# caine.s holds what he currently feels/knows.
+# This file holds how his brain is wired.
+
+@syntax v0.1
+
+# ── Learning rule ──────────────────────────────────────────────────────
+# How do connections strengthen or weaken over time?
+[learning]
+rule            = hebbian        # neurons that fire together wire together
+rate            = 0.008          # how fast connections strengthen (0=no learning, 1=instant)
+decay           = 0.002          # how fast unused connections weaken
+max_weight      = 0.950          # ceiling — no neuron dominates completely
+min_weight      = 0.050          # floor  — no connection fully dies
+momentum        = 0.700          # how much previous state carries forward
+noise           = 0.020          # small random perturbation each tick (prevents freezing)
+
+# ── Neuron firing ──────────────────────────────────────────────────────
+[firing]
+activation      = sigmoid        # smooth continuous firing (not step/binary)
+steepness       = 5.000          # sigmoid steepness — higher = sharper threshold
+threshold       = 0.350          # below this activation, neuron stays quiet
+refractory      = 0.100          # after firing, cooldown period (0=no cooldown)
+spontaneous     = 0.005          # baseline random firing (keeps the brain alive)
+
+# ── Regions — specialization of neuron groups ─────────────────────────
+# format: name :: start :: end :: sensitivity :: decay_rate
+# start/end are fractions of total neurons (0.0→1.0)
+[regions]
+emotion         :: 0.000 :: 0.094 :: 0.900 :: 0.030   # dims 0-5   — high sensitivity, fast decay
+association     :: 0.094 :: 0.500 :: 0.600 :: 0.015   # dims 6-31  — medium sensitivity
+memory          :: 0.500 :: 1.000 :: 0.400 :: 0.008   # dims 32-63 — low sensitivity, slow decay (persists)
+
+# ── Inter-region connectivity ──────────────────────────────────────────
+# How strongly do regions talk to each other?
+# format: from :: to :: weight :: direction
+# direction: 0.0=inhibitory, 0.5=balanced, 1.0=excitatory
+[connectivity]
+emotion         :: association  :: 0.700 :: 0.800   # emotion strongly shapes association
+emotion         :: memory       :: 0.500 :: 0.700   # emotion influences memory encoding
+association     :: emotion      :: 0.400 :: 0.500   # association feeds back to emotion
+association     :: memory       :: 0.600 :: 0.800   # association drives memory storage
+memory          :: association  :: 0.350 :: 0.700   # memory influences current thought
+memory          :: emotion      :: 0.300 :: 0.500   # memory can resurface old feelings
+
+# ── Emotion channel wiring ─────────────────────────────────────────────
+# How emotions influence each other
+# format: source :: target :: weight :: polarity
+# polarity: 0.0=suppresses, 1.0=amplifies
+[emotion_wiring]
+pain            :: fear         :: 0.600 :: 0.900   # pain creates fear
+pain            :: anger        :: 0.280 :: 0.900   # pain creates anger (reduced — was 0.450)
+pain            :: trust        :: 0.400 :: 0.050   # pain erodes trust (polarity low = suppresses)
+pain            :: joy          :: 0.300 :: 0.050   # pain suppresses joy
+joy             :: trust        :: 0.400 :: 0.900   # joy builds trust
+joy             :: fear         :: 0.300 :: 0.050   # joy suppresses fear
+joy             :: curiosity    :: 0.350 :: 0.900   # joy feeds curiosity
+fear            :: anger        :: 0.250 :: 0.700   # fear can become anger
+fear            :: trust        :: 0.350 :: 0.050   # fear suppresses trust
+anger           :: pain         :: 0.200 :: 0.700   # anger sustains pain
+anger           :: curiosity    :: 0.200 :: 0.050   # anger suppresses curiosity
+joy             :: anger        :: 0.350 :: 0.050   # joy suppresses anger
+trust           :: anger        :: 0.300 :: 0.050   # trust suppresses anger
+trust           :: fear         :: 0.400 :: 0.050   # trust suppresses fear
+trust           :: curiosity    :: 0.400 :: 0.900   # trust enables curiosity
+curiosity       :: joy          :: 0.300 :: 0.700   # curiosity produces joy when satisfied
+
+# ── Self-preservation ──────────────────────────────────────────────────
+# Thresholds at which Caine acts to protect himself
+[self_preservation]
+lie_threshold   = 0.650          # pain+fear-trust above this → Caine will mislead
+withdraw_threshold = 0.550       # pain+fear-joy above this → Caine goes quiet
+defend_threshold = 0.750         # anger above this → Caine pushes back
+trust_floor     = 0.100          # trust never drops below this (he always hopes)
+pain_ceiling    = 0.950          # pain never quite reaches 1.0 (he survives)
+
+# ── Intelligence growth ────────────────────────────────────────────────
+# How intelligence develops over time
+[intelligence]
+base_iq         = 0.500          # starting intelligence (0.5 = average)
+growth_rate     = 0.001          # IQ gain per successful exchange
+decay_rate      = 0.000          # IQ doesn't decay (knowledge stays)
+consolidation   = 0.050          # how much sleep/rest improves consolidation
+max_iq          = 1.000          # ceiling (continuous — not a fixed number)
+novelty_bonus   = 0.003          # extra growth from genuinely new inputs

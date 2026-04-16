@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAINE</title>
+  <meta name="theme-color" content="#0b0b0b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0b0b0b;
+      --grid-col: rgba(255,255,255,0.032);
+      --grid-sz:  56px;
+      --red:      #ff1a1a;
+      --text:     #c8c8c8;
+      --text-dim: #444;
+      --text-you: #606060;
+      --border:   #242424;
+      --meta:     #2a2a2a;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── grid ───────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid-col) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-col) 1px, transparent 1px);
+      background-size: var(--grid-sz) var(--grid-sz);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* subtle vignette */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh; /* mobile: account for browser chrome */
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    /* ── orb ─────────────────────────────────────────────────── */
+    #orb-section {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 52px 0 28px;
+    }
+
+    #orb {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 36% 32%, #ff6060 0%, #ff1a1a 45%, #990000 100%);
+      box-shadow:
+        0 0 0 1px rgba(255,20,20,0.15),
+        0 0 22px 6px  rgba(255,15,15,0.75),
+        0 0 55px 20px rgba(255,5,5,0.38),
+        0 0 110px 45px rgba(180,0,0,0.18),
+        0 0 200px 80px rgba(120,0,0,0.08);
+      animation: breathe 4.5s ease-in-out infinite;
+      transition: box-shadow 1.2s ease;
+      cursor: default;
+    }
+
+    #orb.thinking {
+      animation: pulse-fast 0.7s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%,100% {
+        box-shadow:
+          0 0 0 1px rgba(255,20,20,0.15),
+          0 0 22px 6px  rgba(255,15,15,0.75),
+          0 0 55px 20px rgba(255,5,5,0.38),
+          0 0 110px 45px rgba(180,0,0,0.18),
+          0 0 200px 80px rgba(120,0,0,0.08);
+      }
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(255,20,20,0.20),
+          0 0 30px 10px rgba(255,15,15,0.90),
+          0 0 75px 28px rgba(255,5,5,0.50),
+          0 0 140px 60px rgba(200,0,0,0.24),
+          0 0 240px 100px rgba(140,0,0,0.12);
+      }
+    }
+
+    @keyframes pulse-fast {
+      0%,100% {
+        box-shadow:
+          0 0 0 1px rgba(255,40,40,0.25),
+          0 0 30px 10px rgba(255,20,20,0.95),
+          0 0 70px 26px rgba(255,10,10,0.55),
+          0 0 130px 55px rgba(200,0,0,0.28),
+          0 0 220px 90px rgba(150,0,0,0.14);
+        transform: scale(1.0);
+      }
+      50% {
+        box-shadow:
+          0 0 0 1px rgba(255,60,60,0.30),
+          0 0 38px 14px rgba(255,30,30,1.0),
+          0 0 90px 36px rgba(255,10,10,0.65),
+          0 0 170px 70px rgba(220,0,0,0.32),
+          0 0 280px 120px rgba(160,0,0,0.16);
+        transform: scale(1.04);
+      }
+    }
+
+    #orb-label {
+      margin-top: 20px;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.42em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      user-select: none;
+      padding-left: 0.42em; /* compensate letter-spacing */
+    }
+
+    #emo-bar {
+      margin-top: 10px;
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      color: #282828;
+      height: 12px;
+      transition: color 0.8s;
+      user-select: none;
+    }
+
+    /* ── chat ────────────────────────────────────────────────── */
+    #chat {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 4px 0 20px;
+      scrollbar-width: thin;
+      scrollbar-color: #1e1e1e transparent;
+    }
+    #chat::-webkit-scrollbar { width: 3px; }
+    #chat::-webkit-scrollbar-track { background: transparent; }
+    #chat::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+    .msg {
+      padding: 0 40px;
+      margin-bottom: 22px;
+      animation: rise 0.35s ease;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg.user { text-align: right; }
+
+    .msg.user .text {
+      display: inline-block;
+      font-size: 12.5px;
+      color: var(--text-you);
+      font-weight: 400;
+      line-height: 1.7;
+      padding-right: 16px;
+      border-right: 1px solid #222;
+      max-width: 68%;
+      text-align: right;
+    }
+
+    .msg.caine .text {
+      display: block;
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 300;
+      line-height: 1.75;
+      max-width: 82%;
+      letter-spacing: 0.01em;
+    }
+
+    .msg.caine .meta {
+      display: block;
+      margin-top: 7px;
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--meta);
+      text-transform: lowercase;
+    }
+
+    /* ── input ───────────────────────────────────────────────── */
+    #input-area {
+      flex: 0 0 auto;
+      padding: 0 40px 32px;
+    }
+
+    #input-wrap {
+      position: relative;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.012);
+      backdrop-filter: blur(4px);
+      transition: border-color 0.25s;
+    }
+
+    #input-wrap:focus-within {
+      border-color: #333;
+    }
+
+    #msg-input {
+      display: block;
+      width: 100%;
+      padding: 15px 48px 15px 18px;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px; /* 16px prevents iOS zoom on focus */
+      font-weight: 300;
+      letter-spacing: 0.02em;
+      caret-color: var(--red);
+      resize: none;
+      line-height: 1.55;
+      min-height: 52px;
+      max-height: 110px;
+      overflow-y: auto;
+      scrollbar-width: none;
+      -webkit-appearance: none;
+      border-radius: 0;
+    }
+    #msg-input::-webkit-scrollbar { display: none; }
+    #msg-input::placeholder { color: #2c2c2c; font-weight: 300; }
+
+    #send-btn {
+      position: absolute;
+      right: 13px;
+      bottom: 12px;
+      width: 22px;
+      height: 22px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.18;
+      transition: opacity 0.2s;
+    }
+    #send-btn:hover { opacity: 0.55; }
+    #send-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: var(--text);
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── mobile ──────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      #orb-section   { padding: 36px 0 20px; }
+      #orb           { width: 56px; height: 56px; }
+      #orb-label     { font-size: 9px; margin-top: 16px; }
+      .msg           { padding: 0 20px; margin-bottom: 18px; }
+      .msg.user .text { font-size: 12px; padding-right: 12px; max-width: 85%; }
+      .msg.caine .text { font-size: 13.5px; max-width: 95%; }
+      #input-area    { padding: 0 16px 20px; }
+      #msg-input     { padding: 13px 44px 13px 14px; }
+      #send-btn      { right: 10px; bottom: 10px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div id="orb-section">
+    <div id="orb"></div>
+    <div id="orb-label">C A I N E</div>
+    <div id="emo-bar"></div>
+  </div>
+
+  <div id="chat"></div>
+
+  <div id="input-area">
+    <div id="input-wrap">
+      <textarea id="msg-input" placeholder="speak" rows="1"
+                autocomplete="off" spellcheck="false"></textarea>
+      <button id="send-btn" title="Send">
+        <svg viewBox="0 0 24 24">
+          <line x1="12" y1="19" x2="12" y2="5"/>
+          <polyline points="5 12 12 5 19 12"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+<script>
+  const orb     = document.getElementById('orb');
+  const emoBar  = document.getElementById('emo-bar');
+  const chat    = document.getElementById('chat');
+  const input   = document.getElementById('msg-input');
+  const sendBtn = document.getElementById('send-btn');
+  let busy = false;
+
+  // auto-resize
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+  });
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+  sendBtn.addEventListener('click', send);
+
+  function addMsg(role, text, meta) {
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${role}`;
+
+    const t = document.createElement('span');
+    t.className = 'text';
+    t.textContent = text;
+    wrap.appendChild(t);
+
+    if (meta) {
+      const m = document.createElement('span');
+      m.className = 'meta';
+      m.textContent = meta;
+      wrap.appendChild(m);
+    }
+
+    chat.appendChild(wrap);
+    chat.scrollTop = chat.scrollHeight;
+  }
+
+  function updateOrb(d) {
+    const emo = d.emotions || {};
+    const dom = d.dominant || 'curiosity';
+    const val = d.dominant_val || 0.2;
+    const con = d.consciousness || 0.15;
+
+    // scale glow layers with dominant emotion intensity
+    const i1 = (0.70 + val * 0.30).toFixed(2);
+    const i2 = (0.35 + val * 0.20).toFixed(2);
+    const i3 = (0.16 + con * 0.10).toFixed(2);
+    const r  = Math.round(6 + val * 18);
+
+    orb.style.boxShadow = `
+      0 0 0 1px rgba(255,${r},${r},0.18),
+      0 0 ${Math.round(22+val*18)}px ${Math.round(6+val*8)}px rgba(255,${r},${r},${i1}),
+      0 0 ${Math.round(55+val*40)}px ${Math.round(20+val*16)}px rgba(255,5,5,${i2}),
+      0 0 ${Math.round(110+val*80)}px ${Math.round(45+val*35)}px rgba(180,0,0,${i3}),
+      0 0 ${Math.round(200+val*100)}px ${Math.round(80+val*50)}px rgba(120,0,0,0.07)
+    `;
+
+    // emotion bar — top 2 by value
+    const top = Object.entries(emo)
+      .sort((a, b) => b[1] - a[1]).slice(0, 2)
+      .map(([k, v]) => `${k}  ${(v*100).toFixed(0)}`).join('   ·   ');
+    emoBar.textContent = top;
+  }
+
+  async function send() {
+    const txt = input.value.trim();
+    if (!txt || busy) return;
+    busy = true;
+    input.value = '';
+    input.style.height = 'auto';
+
+    addMsg('user', txt);
+    orb.classList.add('thinking');
+    emoBar.textContent = '';
+
+    try {
+      const res  = await fetch('/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({message: txt}),
+      });
+      const d = await res.json();
+      orb.classList.remove('thinking');
+      updateOrb(d);
+
+      const meta = [
+        d.dominant ? `${d.dominant}  ${(d.dominant_val*100).toFixed(0)}` : '',
+        d.iq       ? `iq  ${d.iq}` : '',
+      ].filter(Boolean).join('     ');
+
+      addMsg('caine', d.response || '...', meta);
+    } catch {
+      orb.classList.remove('thinking');
+      addMsg('caine', '...');
+    }
+
+    busy = false;
+    input.focus();
+  }
+
+  // idle state poll
+  setInterval(async () => {
+    if (busy) return;
+    try {
+      const d = await (await fetch('/state')).json();
+      updateOrb(d);
+    } catch {}
+  }, 9000);
+
+  input.focus();
+</script>
+</body>
+</html>
