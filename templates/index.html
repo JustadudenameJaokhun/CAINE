@@ -645,7 +645,9 @@
     emoBar.textContent = top;
   }
 
-  // ── speak (full message) — streams response back ──────────────
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ── speak (full message) — animates response word by word locally ─
   async function speak() {
     const txt = input.value.trim();
     if ((!txt && !pendingImage) || busy) return;
@@ -667,71 +669,55 @@
     emoBar.textContent = '';
     startTimer();
 
-    // create CAINE's message bubble now — we'll fill it word by word
-    const caineWrap = addMsg('caine', '', null);
-    const caineText = caineWrap.querySelector('.text');
-
     try {
       const res = await fetch('/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(sendData),
       });
+      const d = await res.json();
 
       orb.classList.remove('thinking');
       stopTimer();
+      updateOrb(d);
+
+      // build CAINE's bubble with a real .text span
+      const caineWrap = document.createElement('div');
+      caineWrap.className = 'msg caine';
+      const caineText = document.createElement('span');
+      caineText.className = 'text';
+      caineWrap.appendChild(caineText);
+      chat.appendChild(caineWrap);
+      chat.scrollTop = chat.scrollHeight;
+
+      // animate words locally — no SSE needed
+      const words = (d.response || '...').split(' ');
       streaming = true;
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf   = '';
-      let words = [];
-      let meta  = null;
-
-      outer: while (true) {
-        // user interrupted — stop reading
-        if (interrupted) { reader.cancel(); break; }
-
-        const {done, value} = await reader.read();
-        if (done) break;
-
-        buf += decoder.decode(value, {stream: true});
-        const lines = buf.split('\n');
-        buf = lines.pop();  // keep incomplete last line
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const content = line.slice(6);
-          if (content === '[DONE]') continue;
-          if (content.startsWith('[META]')) {
-            try { meta = JSON.parse(content.slice(6)); } catch {}
-            break outer;
-          }
-          if (interrupted) { reader.cancel(); break outer; }
-          words.push(content);
-          caineText.textContent = words.join(' ');
-          chat.scrollTop = chat.scrollHeight;
-        }
+      let shown = 0;
+      for (let i = 0; i < words.length; i++) {
+        if (interrupted) break;
+        await sleep(62);
+        shown = i + 1;
+        caineText.textContent = words.slice(0, shown).join(' ');
+        chat.scrollTop = chat.scrollHeight;
+      }
+      if (interrupted && shown < words.length) {
+        caineText.textContent = words.slice(0, shown).join(' ') + ' —';
       }
 
-      // attach metadata under the message
-      if (meta) {
-        updateOrb(meta);
-        const m = document.createElement('span');
-        m.className = 'meta';
-        m.textContent = `${meta.dominant}  ${Math.round(meta.dominant_val*100)}     iq  ${meta.iq}`;
-        caineWrap.appendChild(m);
-      }
+      // meta line
+      const metaEl = document.createElement('span');
+      metaEl.className = 'meta';
+      metaEl.textContent = [
+        d.dominant ? `${d.dominant}  ${Math.round(d.dominant_val*100)}` : '',
+        d.iq       ? `iq  ${d.iq}` : '',
+      ].filter(Boolean).join('     ');
+      caineWrap.appendChild(metaEl);
 
-      if (interrupted && words.length) {
-        // mark as cut off
-        caineText.textContent = words.join(' ') + ' —';
-      }
-
-    } catch {
+    } catch(e) {
       orb.classList.remove('thinking');
       stopTimer();
-      caineText.textContent = '...';
+      addMsg('caine', '...');
     }
 
     streaming   = false;

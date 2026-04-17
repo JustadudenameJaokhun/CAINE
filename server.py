@@ -14,8 +14,7 @@ sys.path.insert(0, os.path.join(ROOT, 'core'))
 sys.path.insert(0, ROOT)
 
 import numpy as np
-import json as _json
-from flask import Flask, request, jsonify, render_template, Response, stream_with_context
+from flask import Flask, request, jsonify, render_template
 
 from caine import CaineField, N_EMOTIONS
 from thinker import process
@@ -231,30 +230,15 @@ def chat():
 
     emo      = field.emotions
     dominant = max(emo, key=emo.get)
-    meta     = {
-        'dominant':     dominant,
-        'dominant_val': round(emo[dominant], 3),
+    return jsonify({
+        'response':      response,
+        'emotions':      emo,
+        'dominant':      dominant,
+        'dominant_val':  round(emo[dominant], 3),
         'consciousness': round(field.consciousness, 3),
-        'iq':           round(field.iq, 3),
-        'will_lie':     round(field.will_lie, 3),
-        'emotions':     emo,
-    }
-
-    # ── stream response word by word (60ms per word ≈ natural reading pace) ──
-    words = (response or '...').split()
-
-    def generate():
-        for word in words:
-            yield f"data: {word}\n\n"
-            time.sleep(0.060)
-        yield "data: [DONE]\n\n"
-        yield f"data: [META]{_json.dumps(meta)}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
-    )
+        'iq':            round(field.iq, 3),
+        'will_lie':      round(field.will_lie, 3),
+    })
 
 
 if __name__ == '__main__':
