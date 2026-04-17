@@ -54,17 +54,28 @@ _AMBIENT_EVENTS = [
     (1, +0.04, 'quiet'),       # peace
 ]
 
+_heartbeat_tick = 0
+
 def _heartbeat():
+    global _heartbeat_tick
     while True:
         time.sleep(25)
         try:
-            # let the field tick passively
+            _heartbeat_tick += 1
+            # let the field tick passively — brain never fully stops
             field.step()
-            # 1 in 4 chance of an ambient emotional micro-event
+
+            # 1 in 4 chance of a random micro-event
             if random.random() < 0.25:
                 idx, delta, _ = random.choice(_AMBIENT_EVENTS)
                 field.state[idx] = min(1.0, field.state[idx] + delta)
                 np.clip(field.state, 0, 1, out=field.state)
+
+            # every 4 ticks, surface an ambient thought from the field's own vocabulary
+            if _heartbeat_tick % 4 == 0 and field.vocab:
+                thought = field.speak()
+                if thought and thought != field.last_thought:
+                    field.last_thought = thought
         except Exception:
             pass
 
@@ -89,6 +100,8 @@ def state():
         'dominant':     max(emo, key=emo.get),
         'will_lie':     field.will_lie,
         'withdrawn':    field.withdrawn,
+        'thought':      getattr(field, 'last_thought', ''),
+        'fatigue':      round(getattr(field, 'fatigue', 0.0), 3),
     })
 
 
@@ -104,7 +117,13 @@ def chat():
     # encode & recall
     input_vec  = field.encode(user_input)
     input_hash = hash(user_input)
-    memory     = field.recall(input_hash)
+
+    # novelty detection — spike curiosity if topic shifts
+    novelty = field.measure_novelty(input_vec)
+    if novelty > 0.55:
+        field.state[5] = min(1.0, field.state[5] + novelty * 0.12)
+
+    memory = field.recall(input_hash)
     if np.any(memory > 0.1):
         field.state[:N_EMOTIONS] += memory * 0.3
         np.clip(field.state, 0, 1, out=field.state)
@@ -157,6 +176,11 @@ def chat():
     field.exchanges += 1
     if not response:
         response = field.speak(gemini_concept)
+
+    # fatigue — long sessions create slight weight
+    field.fatigue = min(1.0, field.exchanges / 150.0)
+    if field.fatigue > 0.15:
+        field.state[0] = min(0.35, field.state[0] + field.fatigue * 0.003)
 
     # store in conversation history (RAM — gives CAINE memory within a session)
     if response:

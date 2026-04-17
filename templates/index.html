@@ -158,6 +158,28 @@
       user-select: none;
     }
 
+    /* ── ambient thought ────────────────────────────────────────── */
+    #ambient-thought {
+      margin-top: 8px;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      color: #1e1e1e;
+      font-style: italic;
+      height: 11px;
+      max-width: 280px;
+      text-align: center;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      transition: color 2.5s ease, opacity 2.5s ease;
+      opacity: 0;
+      user-select: none;
+    }
+    #ambient-thought.visible {
+      opacity: 1;
+      color: #2a2a2a;
+    }
+
     /* ── thinking indicator ──────────────────────────────────── */
     #thinking-wrap {
       display: none;
@@ -418,6 +440,7 @@
     <div id="orb"></div>
     <div id="orb-label">C A I N E</div>
     <div id="emo-bar"></div>
+    <div id="ambient-thought"></div>
     <div id="thinking-wrap">
       <div id="thinking-track"></div>
       <div id="thinking-timer">0.0s</div>
@@ -453,22 +476,24 @@
 
 </div>
 <script>
-  const orb           = document.getElementById('orb');
-  const emoBar        = document.getElementById('emo-bar');
-  const thinkingWrap  = document.getElementById('thinking-wrap');
-  const thinkingTimer = document.getElementById('thinking-timer');
-  const chat          = document.getElementById('chat');
-  const input         = document.getElementById('msg-input');
-  const sendBtn       = document.getElementById('send-btn');
-  const imgBtn        = document.getElementById('img-btn');
-  const imgInput      = document.getElementById('img-input');
-  const imgPreview    = document.getElementById('img-preview');
-  const imgThumb      = document.getElementById('img-thumb');
-  const imgClear      = document.getElementById('img-clear');
+  const orb            = document.getElementById('orb');
+  const emoBar         = document.getElementById('emo-bar');
+  const ambientThought = document.getElementById('ambient-thought');
+  const thinkingWrap   = document.getElementById('thinking-wrap');
+  const thinkingTimer  = document.getElementById('thinking-timer');
+  const chat           = document.getElementById('chat');
+  const input          = document.getElementById('msg-input');
+  const sendBtn        = document.getElementById('send-btn');
+  const imgBtn         = document.getElementById('img-btn');
+  const imgInput       = document.getElementById('img-input');
+  const imgPreview     = document.getElementById('img-preview');
+  const imgThumb       = document.getElementById('img-thumb');
+  const imgClear       = document.getElementById('img-clear');
   let busy = false;
   let timerInterval = null;
   let pendingImage = null;
   let pendingMime  = 'image/jpeg';
+  let lastThought  = '';
 
   function startTimer() {
     const start = Date.now();
@@ -632,12 +657,20 @@
     input.focus();
   }
 
-  // idle state poll
+  // idle state poll — also surfaces ambient thoughts
   setInterval(async () => {
     if (busy) return;
     try {
       const d = await (await fetch('/state')).json();
       updateOrb(d);
+      // show ambient thought if it changed and CAINE isn't being talked to
+      if (d.thought && d.thought !== lastThought) {
+        lastThought = d.thought;
+        ambientThought.textContent = d.thought;
+        ambientThought.classList.add('visible');
+        // fade out after 8 seconds
+        setTimeout(() => ambientThought.classList.remove('visible'), 8000);
+      }
     } catch {}
   }, 9000);
 

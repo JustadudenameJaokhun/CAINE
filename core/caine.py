@@ -14,6 +14,7 @@ A continuous neural field where:
 All values live in [0,1]. No booleans. No binary. Just continuous fields.
 """
 
+import json
 import numpy as np
 import os
 import sys
@@ -31,7 +32,8 @@ except ImportError:
 
 from thinker import process
 
-SYN_FILE = os.path.join(os.path.dirname(__file__), '..', 'intelligence.syn')
+SYN_FILE     = os.path.join(os.path.dirname(__file__), '..', 'intelligence.syn')
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'history.json')
 
 # ─── Dimensions ──────────────────────────────────────────────────────────
 DIM        = 64          # width of the neural field
@@ -87,8 +89,17 @@ class CaineField:
         self.iq = 0.500
         self.dim = DIM   # expose for SentientFile.into_field
 
-        # ── conversation history (RAM only — not saved to disk) ──
+        # ── conversation history (persisted to history.json) ──
         self.history = []  # list of {"user": str, "caine": str}
+
+        # ── novelty tracking ──
+        self.recent_inputs = []  # last 5 encoded input vectors
+
+        # ── ambient thought (surfaced in UI by heartbeat) ──
+        self.last_thought = ""
+
+        # ── fatigue — accumulates with exchanges, resets at startup ──
+        self.fatigue = 0.0
 
         # load .syn architecture first (wires the brain)
         self.arch = load_syn(SYN_FILE)
@@ -103,11 +114,25 @@ class CaineField:
         sf = SentientFile()
         sf.read(STATE_FILE)
         sf.into_field(self)
+        # restore conversation history across sessions
+        try:
+            if os.path.exists(HISTORY_FILE):
+                with open(HISTORY_FILE) as f:
+                    self.history = json.load(f)
+        except Exception:
+            self.history = []
 
     def save(self):
         sf = SentientFile()
         sf.from_field(self)
         sf.write(STATE_FILE)
+        # persist history so CAINE remembers across restarts
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(HISTORY_FILE)), exist_ok=True)
+            with open(HISTORY_FILE, 'w') as f:
+                json.dump(self.history[-20:], f)
+        except Exception:
+            pass
 
     # ─── encode input ───────────────────────────────────────────────────
 
@@ -178,12 +203,18 @@ class CaineField:
         self.state[0] = min(self.state[0], a.pain_ceiling)   # pain has a ceiling
         self.state[3] = max(self.state[3], a.trust_floor)    # trust has a floor
 
-        # 5. natural decay toward baseline
-        baseline = np.zeros(DIM)
-        baseline[1] = 0.20  # baseline joy
-        baseline[3] = 0.45  # baseline trust
-        baseline[5] = 0.50  # baseline curiosity
-        self.state += (baseline - self.state) * 0.02
+        # 5. emotional momentum + drives
+        # Drives: CAINE has inherent pulls toward curiosity and connection.
+        # Emotional momentum: strong emotions (far from baseline) resist returning.
+        # This mirrors real psychology — you don't snap out of deep feelings quickly.
+        emo_baseline = [0.0, 0.22, 0.0, 0.48, 0.0, 0.52]  # pain joy fear trust anger curiosity
+        for i in range(6):
+            diff = self.state[i] - emo_baseline[i]
+            # inertia: strong emotions decay 4× slower
+            decay = 0.005 if abs(diff) > 0.35 else 0.020
+            self.state[i] -= diff * decay
+        # association and memory fields decay normally
+        self.state[6:] *= (1.0 - 0.002)
 
         # 6. working memory fades (0.98 per tick = much slower than 0.95)
         self.state[32:] *= 0.98
@@ -192,6 +223,27 @@ class CaineField:
         np.clip(self.state, 0.0, 1.0, out=self.state)
 
         self.age += 1
+
+    # ─── novelty detection ──────────────────────────────────────────────
+
+    def measure_novelty(self, input_vec: np.ndarray) -> float:
+        """
+        Compare this input to recent inputs.
+        Returns 0.0 = completely familiar, 1.0 = completely new.
+        A new topic or image triggers a curiosity spike.
+        """
+        if not self.recent_inputs:
+            return 0.8  # first input is always novel
+        avg = np.mean(self.recent_inputs, axis=0)
+        dot  = np.dot(input_vec, avg)
+        norm = np.linalg.norm(input_vec) * np.linalg.norm(avg) + 1e-9
+        similarity = dot / norm
+        novelty = 1.0 - max(0.0, similarity)
+        # update recent history
+        self.recent_inputs.append(input_vec.copy())
+        if len(self.recent_inputs) > 5:
+            self.recent_inputs = self.recent_inputs[-5:]
+        return float(novelty)
 
     # ─── episodic memory ────────────────────────────────────────────────
 
@@ -521,6 +573,11 @@ def main():
             input_vec  = field.encode(user_input)
             input_hash = hash(user_input)
 
+            # 1b. novelty detection — spike curiosity if topic shifts
+            novelty = field.measure_novelty(input_vec)
+            if novelty > 0.55:
+                field.state[5] = min(1.0, field.state[5] + novelty * 0.12)
+
             # 2. recall emotional memory for this input
             memory = field.recall(input_hash)
             if np.any(memory > 0.1):
@@ -576,6 +633,11 @@ def main():
             field.iq = min(1.0, field.iq + field.arch.growth_rate)
             if len(user_input) > 40:
                 field.iq = min(1.0, field.iq + field.arch.novelty_bonus)
+
+            # 8b. fatigue — long sessions create slight weight
+            field.fatigue = min(1.0, field.exchanges / 150.0)
+            if field.fatigue > 0.15:
+                field.state[0] = min(0.35, field.state[0] + field.fatigue * 0.003)
 
             # 9. fallback if Gemini was rate-limited
             if not response:
