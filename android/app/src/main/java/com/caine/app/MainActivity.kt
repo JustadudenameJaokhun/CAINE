@@ -48,11 +48,14 @@ class MainActivity : AppCompatActivity() {
             allowFileAccess          = true
             cacheMode                = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = false
+            setSupportMultipleWindows(true)
+            javaScriptCanOpenWindowsAutomatically = true
             setSupportZoom(false)
             displayZoomControls      = false
             useWideViewPort          = true
             loadWithOverviewMode     = true
-            userAgentString          = "CAINE-App/1.0 Android"
+            // keep a real Chrome UA so Google Sign-In renders correctly
+            userAgentString          = userAgentString.replace("; wv", "")
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -78,6 +81,22 @@ class MainActivity : AppCompatActivity() {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(msg: ConsoleMessage?) = true
+            override fun onCreateWindow(
+                view: WebView, isDialog: Boolean, isUserGesture: Boolean, msg: android.os.Message
+            ): Boolean {
+                val popup = WebView(this@MainActivity)
+                popup.settings.javaScriptEnabled = true
+                val transport = msg.obj as WebView.WebViewTransport
+                transport.webView = popup
+                msg.sendToTarget()
+                return true
+            }
+        }
+
+        // allow third-party cookies (needed for Google Sign-In)
+        android.webkit.CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
         }
 
         setContentView(webView)
