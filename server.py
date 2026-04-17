@@ -163,6 +163,16 @@ def _is_creator():
     return session.get('email') == CREATOR_EMAIL
 
 
+@app.route('/manifest.json')
+def manifest():
+    return app.send_static_file('manifest.json')
+
+@app.route('/sw.js')
+def sw():
+    resp = app.send_static_file('sw.js')
+    resp.headers['Service-Worker-Allowed'] = '/'
+    return resp
+
 @app.route('/auth', methods=['POST'])
 def auth():
     """Verify Google Identity Services JWT and create session."""

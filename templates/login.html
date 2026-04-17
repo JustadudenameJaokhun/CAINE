@@ -6,7 +6,7 @@
   <title>CAINE</title>
   <meta name="theme-color" content="#ff1a1a">
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
   <style>
@@ -170,6 +170,9 @@
       document.getElementById('error-msg').style.display = 'block';
     }
   }
+</script>
+<script>
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 </script>
 </body>
 </html>
