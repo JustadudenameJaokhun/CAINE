@@ -22,7 +22,13 @@ jobs:
 
       - name: Generate keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
+          keytool -genkeypair -v \
+            -keystore android/app/keystore.jks \
+            -alias ${{ secrets.KEY_ALIAS }} \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass ${{ secrets.KEYSTORE_PASSWORD }} \
+            -keypass ${{ secrets.KEY_PASSWORD }} \
+            -dname "CN=CAINE, O=CAINE, C=US"
 
       - name: Build release APK
         working-directory: android
