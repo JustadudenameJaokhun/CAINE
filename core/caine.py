@@ -548,11 +548,12 @@ def main():
             response         = result.get('response',  '').strip()
 
             # 5. Gemini's analysis feeds back into the field
-            if gemini_hostility > 0.3:
-                field.state[0] += gemini_hostility * 0.25   # pain
-                field.state[4] += gemini_hostility * 0.15   # anger
+            if gemini_hostility > 0.6:
+                field.state[0] += gemini_hostility * 0.08   # pain
+                field.state[4] += gemini_hostility * 0.04   # anger
             if gemini_curiosity > 0.3:
-                field.state[5] += gemini_curiosity * 0.20   # curiosity
+                field.state[1] += gemini_curiosity * 0.06   # joy
+                field.state[5] += gemini_curiosity * 0.10   # curiosity
             if gemini_concept:
                 concept_vec = field.encode(gemini_concept)
                 field.state  = 0.9 * field.state + 0.1 * concept_vec

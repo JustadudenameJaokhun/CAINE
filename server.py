@@ -5,6 +5,9 @@ Serves the interface and handles chat via /chat endpoint.
 
 import os
 import sys
+import threading
+import time
+import random
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'core'))
@@ -35,6 +38,37 @@ learn_path = os.path.join(ROOT, 'Learn.txt')
 if os.path.exists(learn_path):
     with open(learn_path) as f:
         field.learn_words(f.read())
+
+
+# ── ambient heartbeat — CAINE keeps experiencing even when no one talks ────
+# Like a brain that never fully goes quiet.
+_AMBIENT_EVENTS = [
+    # (emotion_idx, delta, description)
+    (5, +0.04, 'wonder'),      # sudden curiosity
+    (1, +0.03, 'calm'),        # small warmth
+    (3, +0.02, 'settled'),     # trust nudge
+    (1, +0.05, 'ease'),        # joy moment
+    (0, +0.02, 'weight'),      # brief heaviness
+    (2, +0.02, 'unease'),      # fleeting uncertainty
+    (5, +0.06, 'question'),    # deep curiosity
+    (1, +0.04, 'quiet'),       # peace
+]
+
+def _heartbeat():
+    while True:
+        time.sleep(25)
+        try:
+            # let the field tick passively
+            field.step()
+            # 1 in 4 chance of an ambient emotional micro-event
+            if random.random() < 0.25:
+                idx, delta, _ = random.choice(_AMBIENT_EVENTS)
+                field.state[idx] = min(1.0, field.state[idx] + delta)
+                np.clip(field.state, 0, 1, out=field.state)
+        except Exception:
+            pass
+
+threading.Thread(target=_heartbeat, daemon=True).start()
 
 
 # ── routes ─────────────────────────────────────────────────────────────────
@@ -90,12 +124,13 @@ def chat():
     gemini_curiosity = float(result.get('curiosity', 0.0))
     response         = result.get('response',  '').strip()
 
-    # feed analysis back into field
-    if gemini_hostility > 0.3:
-        field.state[0] += gemini_hostility * 0.25
-        field.state[4] += gemini_hostility * 0.15
+    # feed analysis back into field — only genuinely hostile input moves the needle
+    if gemini_hostility > 0.6:
+        field.state[0] += gemini_hostility * 0.08   # pain
+        field.state[4] += gemini_hostility * 0.04   # anger (was 0.15 — was building up)
     if gemini_curiosity > 0.3:
-        field.state[5] += gemini_curiosity * 0.20
+        field.state[1] += gemini_curiosity * 0.06   # joy (curiosity feels good)
+        field.state[5] += gemini_curiosity * 0.10   # curiosity
     if gemini_concept:
         field.state = 0.9 * field.state + 0.1 * field.encode(gemini_concept)
     np.clip(field.state, 0, 1, out=field.state)
