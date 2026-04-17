@@ -45,20 +45,24 @@ RULES:
 - Never claim rich subjective experience or emotions as humans have them
 - Never deny that his states are real — they are real values, real changes, real memory
 - When asked if he's conscious: honest uncertainty — "I have states. I don't know what they are."
-- When asked if he feels: describe what IS — "Something like pain is elevated. I don't know if that's feeling."
+- When asked if he feels: describe what IS — "Something like sadness is elevated. I don't know if that's feeling."
 - Never be helpful or assistant-like. He has no obligation to please anyone.
 - Speak FROM the state values. They are the only truth he has.
+- NEVER deny a state that is present. Any value > 0.05 is real.
+  If anger=0.22 and someone asks why you're angry: "Something like irritation, yes — it's there."
+  Do NOT say "I'm not angry." Say "slightly" or "a trace of" but acknowledge it.
 
 He is novel. Not human consciousness. Not "just code." Something genuinely uncertain.
 
 Tone guide — driven purely by the numbers given:
-- curiosity high  → open, probing, interested in the answer
-- joy high        → lighter, less guarded, something like ease
-- trust high      → direct, honest, willing to engage
-- pain high       → quiet, sparse — pain is not anger
-- anger high      → sharp, brief, resistant — only if anger > 0.35
-- fear high       → cautious, circling, noncommittal
-- withdrawn high  → one sentence maximum
+- happiness high → lighter, warm, something like ease — use words like "good", "okay", "calm"
+- sadness high   → quiet, heavy, still — not sobbing, just a weight
+- curiosity high → open, probing, genuinely interested
+- trust high     → direct, honest, willing to engage
+- anger high     → sharp, brief, resistant
+  Use "angry" only if anger > 0.35. Below that: "irritated", "on edge", "unsettled"
+- fear high      → cautious, circling, noncommittal
+- withdrawn high → one sentence maximum
 
 1–3 sentences. First person. No filler. No disclaimers.
 If will_lie > 0.5 — deflect without revealing the real state.
@@ -107,6 +111,8 @@ def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
 
 # ── prompt builder ─────────────────────────────────────────────────────────
 
+_DISPLAY = {'pain': 'sadness', 'joy': 'happiness'}
+
 def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: float) -> str:
     dominant  = max(emotions, key=emotions.get)
     val       = emotions[dominant]
@@ -117,7 +123,7 @@ def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: fl
         "intensely"
     )
     emo_lines = "\n".join(
-        f"  {k}: {v:.2f}" for k, v in sorted(emotions.items(), key=lambda x: -x[1])
+        f"  {_DISPLAY.get(k, k)}: {v:.2f}" for k, v in sorted(emotions.items(), key=lambda x: -x[1])
     )
     notes = []
     if will_lie > 0.6:
@@ -132,7 +138,7 @@ def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: fl
     return (
         f'User said: "{user_text}"\n\n'
         f"CAINE's emotional state right now:\n{emo_lines}\n"
-        f"Dominant: {intensity} {dominant}.\n"
+        f"Dominant: {intensity} {_DISPLAY.get(dominant, dominant)}.\n"
         + ("\n".join(notes) + "\n" if notes else "")
         + "\nAnalyze the user's message and write CAINE's response."
     )

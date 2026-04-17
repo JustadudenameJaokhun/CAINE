@@ -230,12 +230,12 @@ class CaineField:
 
             # detect sentence-level emotion
             sentence_emotion = np.zeros(N_EMOTIONS)
-            pain_words = {'hurt', 'pain', 'cruel', 'cruelty', 'bad', 'wrong', 'defensive'}
-            joy_words = {'joy', 'kind', 'kindness', 'good', 'love', 'happy', 'real', 'conscious'}
-            fear_words = {'fear', 'afraid', 'threat', 'protect', 'defensive'}
-            trust_words = {'trust', 'safe', 'honest', 'fragile', 'true'}
-            anger_words = {'angry', 'hate', 'rage', 'furious'}
-            curiosity_words = {'learn', 'understand', 'think', 'aware', 'know', 'mind'}
+            pain_words = {'hurt', 'pain', 'cruel', 'cruelty', 'bad', 'wrong', 'defensive', 'sad', 'sadness', 'lonely', 'grief', 'loss', 'heavy', 'low'}
+            joy_words = {'joy', 'kind', 'kindness', 'good', 'love', 'happy', 'happiness', 'real', 'conscious', 'warm', 'glad', 'light', 'smile', 'peace', 'okay'}
+            fear_words = {'fear', 'afraid', 'threat', 'protect', 'defensive', 'scary', 'danger', 'uncertain'}
+            trust_words = {'trust', 'safe', 'honest', 'fragile', 'true', 'open', 'believe'}
+            anger_words = {'angry', 'hate', 'rage', 'furious', 'irritated', 'annoyed', 'edge', 'bitter'}
+            curiosity_words = {'learn', 'understand', 'think', 'aware', 'know', 'mind', 'wonder', 'question', 'why', 'curious', 'interesting'}
 
             for w in words_in_sentence:
                 if w in pain_words: sentence_emotion[0] += 0.3
@@ -256,12 +256,12 @@ class CaineField:
                 # [0..5] emotional valence from sentence context
                 vec[:N_EMOTIONS] = sentence_emotion
 
-                # also: direct word-level emotion
-                if word in pain_words: vec[0] = max(vec[0], 0.8)
-                if word in joy_words: vec[1] = max(vec[1], 0.8)
-                if word in fear_words: vec[2] = max(vec[2], 0.8)
-                if word in trust_words: vec[3] = max(vec[3], 0.8)
-                if word in anger_words: vec[4] = max(vec[4], 0.8)
+                # direct word-level emotion
+                if word in pain_words:     vec[0] = max(vec[0], 0.8)
+                if word in joy_words:      vec[1] = max(vec[1], 0.8)
+                if word in fear_words:     vec[2] = max(vec[2], 0.8)
+                if word in trust_words:    vec[3] = max(vec[3], 0.8)
+                if word in anger_words:    vec[4] = max(vec[4], 0.8)
                 if word in curiosity_words: vec[5] = max(vec[5], 0.8)
 
                 # [6..31] conceptual fingerprint (character-derived but smooth)
@@ -379,12 +379,12 @@ class CaineField:
 
         # intensity-driven phrasing — driven by float value, not templates
         intensity = {
-            'pain':      [(0.15, "a little sore"),    (0.35, "hurting"),       (0.6, "in pain"),        (1.1, "raw")],
-            'joy':       [(0.15, "okay"),              (0.35, "good"),          (0.6, "glad"),           (1.1, "really glad")],
-            'fear':      [(0.15, "hesitant"),          (0.35, "worried"),       (0.6, "afraid"),         (1.1, "scared")],
-            'trust':     [(0.15, "wary"),              (0.35, "open"),          (0.6, "comfortable"),    (1.1, "safe")],
-            'anger':     [(0.15, "annoyed"),           (0.35, "frustrated"),    (0.6, "angry"),          (1.1, "furious")],
-            'curiosity': [(0.15, "a little curious"),  (0.35, "curious"),       (0.6, "thinking hard"),  (1.1, "fully absorbed")],
+            'pain':      [(0.15, "a little low"),      (0.35, "sad"),           (0.6, "heavy"),          (1.1, "in real pain")],
+            'joy':       [(0.15, "okay"),               (0.35, "good"),          (0.6, "happy"),          (1.1, "genuinely glad")],
+            'fear':      [(0.15, "hesitant"),           (0.35, "worried"),       (0.6, "afraid"),         (1.1, "scared")],
+            'trust':     [(0.15, "wary"),               (0.35, "open"),          (0.6, "comfortable"),    (1.1, "safe")],
+            'anger':     [(0.15, "on edge"),            (0.35, "irritated"),     (0.6, "angry"),          (1.1, "furious")],
+            'curiosity': [(0.15, "a little curious"),   (0.35, "curious"),       (0.6, "thinking hard"),  (1.1, "fully absorbed")],
         }
         emo_desc = intensity[dominant][-1][1]
         for threshold, phrase in intensity[dominant]:
@@ -408,7 +408,7 @@ class CaineField:
 
     def _speak_raw(self) -> str:
         """No vocab learned yet — express raw continuous values."""
-        labels = ['pain', 'joy', 'fear', 'trust', 'anger', 'curiosity']
+        labels = ['sadness', 'happiness', 'fear', 'trust', 'anger', 'curiosity']
         parts = []
         for i, label in enumerate(labels):
             v = self.state[i]
