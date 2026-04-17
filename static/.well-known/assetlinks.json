@@ -1,8 +1,8 @@
 [{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.caine.twa",
-    "sha256_cert_fingerprints": ["PASTE_YOUR_FINGERPRINT_HERE"]
-  }
-}]
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.onrender.caine_ye8z.twa",
+        "sha256_cert_fingerprints": ["5F:5B:20:18:F1:63:46:12:0B:D9:06:64:34:63:2A:8F:ED:FE:E6:3D:2B:5B:BD:63:FC:6A:45:4E:39:DB:8D:56"]
+      }
+    }]
