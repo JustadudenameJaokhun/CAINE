@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import random
+import datetime
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'core'))
@@ -38,8 +39,70 @@ except ImportError:
 
 CREATOR_EMAIL = "rewindjames@gmail.com"
 
-app = Flask(__name__, template_folder=os.path.join(ROOT, 'templates'))
+app = Flask(__name__,
+            template_folder=os.path.join(ROOT, 'templates'),
+            static_folder=os.path.join(ROOT, 'static'))
 app.secret_key = SECRET_KEY or "caine-dev-secret"
+
+# ── per-user long-term memory ──────────────────────────────────────────────
+USER_DATA_DIR = os.path.join(ROOT, 'data', 'users')
+os.makedirs(USER_DATA_DIR, exist_ok=True)
+
+def _user_path(email: str) -> str:
+    slug = email.replace('@', '_at_').replace('.', '_').lower()
+    return os.path.join(USER_DATA_DIR, slug + '.json')
+
+def _load_user(email: str, name: str = '') -> dict:
+    """Load or create a user memory record."""
+    import json as _json
+    today = datetime.date.today().isoformat()
+    mem = {
+        'email': email, 'name': name or email,
+        'first_seen': today, 'last_seen': today,
+        'exchange_count': 0,
+        'history': [],
+        'topic_counts': {}, 'topics': [],
+        'emotional_impression': {},
+    }
+    try:
+        path = _user_path(email)
+        if os.path.exists(path):
+            with open(path) as f:
+                saved = _json.load(f)
+            mem.update(saved)
+    except Exception:
+        pass
+    if name:
+        mem['name'] = name
+    mem['last_seen'] = today
+    return mem
+
+def _save_user(mem: dict):
+    """Persist user memory to disk."""
+    import json as _json
+    try:
+        path = _user_path(mem['email'])
+        with open(path, 'w') as f:
+            _json.dump(mem, f)
+    except Exception:
+        pass
+
+def _update_user(mem: dict, user_input: str, response: str,
+                 concept: str, emotions: dict):
+    """Update user memory after an exchange and save."""
+    if response:
+        mem['history'].append({'user': user_input, 'caine': response})
+        if len(mem['history']) > 50:
+            mem['history'] = mem['history'][-50:]
+    if concept:
+        tc = mem.setdefault('topic_counts', {})
+        tc[concept] = tc.get(concept, 0) + 1
+        mem['topics'] = sorted(tc, key=tc.get, reverse=True)[:10]
+    mem['exchange_count'] = mem.get('exchange_count', 0) + 1
+    imp = mem.setdefault('emotional_impression', {})
+    for k, v in emotions.items():
+        imp[k] = round(imp[k] * 0.88 + v * 0.12, 3) if k in imp else round(v, 3)
+    _save_user(mem)
 
 # ── load CAINE once at startup ─────────────────────────────────────────────
 field = CaineField()
@@ -203,6 +266,11 @@ def state():
 def chat():
     if not _logged_in():
         return jsonify({'error': 'unauthorized'}), 401
+
+    email    = session.get('email', '')
+    name     = session.get('name', email)
+    user_mem = _load_user(email, name)
+
     data       = request.get_json(force=True)
     user_input = data.get('message', '').strip()
     image_data = data.get('image', '')
@@ -210,7 +278,7 @@ def chat():
     if not user_input and not image_data:
         return jsonify({'response': '', 'emotions': field.emotions})
 
-    # ── field processing (all done before streaming starts) ──
+    # ── field processing ──
     input_vec  = field.encode(user_input)
     input_hash = hash(user_input)
 
@@ -229,11 +297,23 @@ def chat():
 
     is_creator = _is_creator()
 
+    # ── build user context for thinker ──
+    user_ctx = {
+        'name':               user_mem.get('name', name),
+        'exchange_count':     user_mem.get('exchange_count', 0),
+        'topics':             user_mem.get('topics', []),
+        'emotional_impression': user_mem.get('emotional_impression', {}),
+    }
+
+    # use this user's personal history for LLM context
+    user_history = user_mem.get('history', [])[-10:]
+
     result           = process(user_input, field.emotions, field.will_lie,
                                field.withdrawn, GEMINI_KEY, GROQ_KEY,
-                               history=field.history,
+                               history=user_history,
                                image_data=image_data, image_mime=image_mime,
-                               is_creator=is_creator)
+                               is_creator=is_creator,
+                               user_context=user_ctx)
     gemini_concept   = result.get('concept',   '').strip()
     gemini_hostility = float(result.get('hostility', 0.0))
     gemini_curiosity = float(result.get('curiosity', 0.0))
@@ -271,9 +351,13 @@ def chat():
         field.state[0] = min(0.35, field.state[0] + field.fatigue * 0.003)
 
     if response:
+        # global ambient context (recent convo regardless of who)
         field.history.append({"user": user_input, "caine": response})
         if len(field.history) > 20:
             field.history = field.history[-20:]
+
+    # per-user long-term memory
+    _update_user(user_mem, user_input, response, gemini_concept, field.emotions)
 
     if field.exchanges % 10 == 0:
         field.save()

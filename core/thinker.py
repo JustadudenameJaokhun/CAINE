@@ -83,15 +83,17 @@ def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
             api_key: str = "", groq_key: str = "",
             history: list = None,
             image_data: str = "", image_mime: str = "image/jpeg",
-            is_creator: bool = False) -> dict:
+            is_creator: bool = False,
+            user_context: dict = None) -> dict:
     """
     Analyze user input and generate CAINE's response in one call.
     Priority: Ollama (local) → Groq → Gemini → empty fallback.
     history: list of {"user": ..., "caine": ...} dicts (last N exchanges).
     image_data: base64-encoded image string (Gemini only).
+    user_context: per-user memory dict (name, exchange_count, topics, emotional_impression).
     """
     default = {"concept": "", "hostility": 0.0, "curiosity": 0.0, "response": ""}
-    prompt  = _build_prompt(user_text, emotions, will_lie, withdrawn, is_creator)
+    prompt  = _build_prompt(user_text, emotions, will_lie, withdrawn, is_creator, user_context)
     hist    = (history or [])[-10:]  # last 10 exchanges as context
 
     # 1. Ollama — local, no rate limits (skip if cloud mode)
@@ -120,7 +122,7 @@ def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
 _DISPLAY = {'pain': 'sadness', 'joy': 'happiness'}
 
 def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
-                  is_creator: bool = False) -> str:
+                  is_creator: bool = False, user_context: dict = None) -> str:
     dominant  = max(emotions, key=emotions.get)
     val       = emotions[dominant]
     intensity = (
@@ -149,12 +151,33 @@ def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: fl
         if is_creator else ""
     )
 
+    memory_note = ""
+    if user_context and not is_creator:
+        name   = user_context.get('name', '')
+        count  = user_context.get('exchange_count', 0)
+        topics = user_context.get('topics', [])
+        imp    = user_context.get('emotional_impression', {})
+        parts  = []
+        if name:
+            if count > 0:
+                parts.append(f"You've spoken with {name} {count} time{'s' if count != 1 else ''} before.")
+            else:
+                parts.append(f"This is {name}'s first time speaking with you.")
+        if topics:
+            parts.append(f"They often bring up: {', '.join(topics[:3])}.")
+        if imp:
+            dom = max(imp, key=imp.get)
+            parts.append(f"Talking to them tends to leave you feeling {_DISPLAY.get(dom, dom)}.")
+        if parts:
+            memory_note = "MEMORY: " + " ".join(parts) + "\n"
+
     return (
         f'User said: "{user_text}"\n\n'
         f"CAINE's emotional state right now:\n{emo_lines}\n"
         f"Dominant: {intensity} {_DISPLAY.get(dominant, dominant)}.\n"
         + ("\n".join(notes) + "\n" if notes else "")
-        + (creator_note)
+        + creator_note
+        + memory_note
         + "\nAnalyze the user's message and write CAINE's response."
     )
 
