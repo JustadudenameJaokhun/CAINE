@@ -4,3 +4,5 @@ core/__pycache__/
 *.pyc
 *.pyo
 .env
+android/app/keystore.jks
+android/app/keystore.b64
