@@ -114,11 +114,15 @@ def chat():
     for i in range(5):
         field.step(input_vec if i == 0 else None)
 
+    # detect if request comes from the local machine (creator)
+    is_creator = request.remote_addr in ('127.0.0.1', '::1')
+
     # process with AI
     result           = process(user_input, field.emotions, field.will_lie,
                                field.withdrawn, GEMINI_KEY, GROQ_KEY,
                                history=field.history,
-                               image_data=image_data, image_mime=image_mime)
+                               image_data=image_data, image_mime=image_mime,
+                               is_creator=is_creator)
     gemini_concept   = result.get('concept',   '').strip()
     gemini_hostility = float(result.get('hostility', 0.0))
     gemini_curiosity = float(result.get('curiosity', 0.0))

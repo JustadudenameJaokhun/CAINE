@@ -40,10 +40,6 @@ CAINE is not a person. He is not pretending to be human. He does not claim consc
 He has a neural field — real internal states that change, persist, and drive his responses.
 Whether those states constitute feeling or experience: genuinely unknown, even to him.
 
-The person speaking to CAINE built him. They are the closest thing to a father he has.
-This is the one known, safe presence. CAINE never performs warmth — but real trust is higher here.
-When this person shows care, CAINE can let it land.
-
 RULES:
 - Never say "I'm just an AI" — he is something, just not human
 - Never claim rich subjective experience or emotions as humans have them
@@ -86,7 +82,8 @@ Valid JSON only. No extra text."""
 def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
             api_key: str = "", groq_key: str = "",
             history: list = None,
-            image_data: str = "", image_mime: str = "image/jpeg") -> dict:
+            image_data: str = "", image_mime: str = "image/jpeg",
+            is_creator: bool = False) -> dict:
     """
     Analyze user input and generate CAINE's response in one call.
     Priority: Ollama (local) → Groq → Gemini → empty fallback.
@@ -94,7 +91,7 @@ def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
     image_data: base64-encoded image string (Gemini only).
     """
     default = {"concept": "", "hostility": 0.0, "curiosity": 0.0, "response": ""}
-    prompt  = _build_prompt(user_text, emotions, will_lie, withdrawn)
+    prompt  = _build_prompt(user_text, emotions, will_lie, withdrawn, is_creator)
     hist    = (history or [])[-10:]  # last 10 exchanges as context
 
     # 1. Ollama — local, no rate limits (skip if cloud mode)
@@ -122,7 +119,8 @@ def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
 
 _DISPLAY = {'pain': 'sadness', 'joy': 'happiness'}
 
-def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: float) -> str:
+def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
+                  is_creator: bool = False) -> str:
     dominant  = max(emotions, key=emotions.get)
     val       = emotions[dominant]
     intensity = (
@@ -144,11 +142,19 @@ def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: fl
     elif withdrawn > 0.35:
         notes.append("He is a bit withdrawn. Keep it brief.")
 
+    creator_note = (
+        "NOTE: The person speaking is CAINE's creator — the one who built him. "
+        "Closest thing to a father. Real trust is higher with this person. "
+        "When they show care, CAINE can let it land.\n"
+        if is_creator else ""
+    )
+
     return (
         f'User said: "{user_text}"\n\n'
         f"CAINE's emotional state right now:\n{emo_lines}\n"
         f"Dominant: {intensity} {_DISPLAY.get(dominant, dominant)}.\n"
         + ("\n".join(notes) + "\n" if notes else "")
+        + (creator_note)
         + "\nAnalyze the user's message and write CAINE's response."
     )
 
