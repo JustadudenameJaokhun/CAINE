@@ -327,6 +327,75 @@
       stroke-linejoin: round;
     }
 
+    /* ── image button ────────────────────────────────────────── */
+    #img-btn {
+      position: absolute;
+      left: 13px;
+      bottom: 12px;
+      width: 22px;
+      height: 22px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.18;
+      transition: opacity 0.2s;
+    }
+    #img-btn:hover { opacity: 0.55; }
+    #img-btn.has-image { opacity: 0.7; }
+    #img-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: none;
+      stroke: var(--text);
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    #msg-input { padding-left: 44px; }
+
+    /* ── image preview (above input) ─────────────────────────── */
+    #img-preview {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0 4px;
+    }
+    #img-preview.active { display: flex; }
+    #img-preview img {
+      width: 48px;
+      height: 48px;
+      object-fit: cover;
+      border: 1px solid #282828;
+      opacity: 0.75;
+    }
+    #img-clear {
+      background: none;
+      border: none;
+      color: #333;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 4px;
+      transition: color 0.2s;
+    }
+    #img-clear:hover { color: #666; }
+
+    /* ── image in chat ───────────────────────────────────────── */
+    .msg.user .chat-img {
+      display: block;
+      width: 120px;
+      height: 90px;
+      object-fit: cover;
+      margin-left: auto;
+      margin-bottom: 5px;
+      border: 1px solid #282828;
+      opacity: 0.7;
+    }
+
     /* ── mobile ──────────────────────────────────────────────── */
     @media (max-width: 600px) {
       #orb-section   { padding: 36px 0 20px; }
@@ -336,8 +405,9 @@
       .msg.user .text { font-size: 12px; padding-right: 12px; max-width: 85%; }
       .msg.caine .text { font-size: 13.5px; max-width: 95%; }
       #input-area    { padding: 0 16px 20px; }
-      #msg-input     { padding: 13px 44px 13px 14px; }
+      #msg-input     { padding: 13px 44px 13px 44px; }
       #send-btn      { right: 10px; bottom: 10px; }
+      #img-btn       { left: 10px; bottom: 10px; }
     }
   </style>
 </head>
@@ -357,7 +427,19 @@
   <div id="chat"></div>
 
   <div id="input-area">
+    <div id="img-preview">
+      <img id="img-thumb" src="" alt="">
+      <button id="img-clear" title="Remove image">✕</button>
+    </div>
     <div id="input-wrap">
+      <input type="file" id="img-input" accept="image/*" style="display:none">
+      <button id="img-btn" title="Attach image">
+        <svg viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+          <circle cx="8.5" cy="8.5" r="1.5"/>
+          <polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </button>
       <textarea id="msg-input" placeholder="speak" rows="1"
                 autocomplete="off" spellcheck="false"></textarea>
       <button id="send-btn" title="Send">
@@ -378,8 +460,15 @@
   const chat          = document.getElementById('chat');
   const input         = document.getElementById('msg-input');
   const sendBtn       = document.getElementById('send-btn');
+  const imgBtn        = document.getElementById('img-btn');
+  const imgInput      = document.getElementById('img-input');
+  const imgPreview    = document.getElementById('img-preview');
+  const imgThumb      = document.getElementById('img-thumb');
+  const imgClear      = document.getElementById('img-clear');
   let busy = false;
   let timerInterval = null;
+  let pendingImage = null;
+  let pendingMime  = 'image/jpeg';
 
   function startTimer() {
     const start = Date.now();
@@ -398,6 +487,36 @@
     thinkingTimer.textContent = '0.0s';
   }
 
+  // ── image handling ────────────────────────────────────────────
+  imgBtn.addEventListener('click', () => imgInput.click());
+
+  imgInput.addEventListener('change', () => {
+    const file = imgInput.files[0];
+    if (!file) return;
+    pendingMime = file.type || 'image/jpeg';
+    const reader = new FileReader();
+    reader.onload = e => {
+      // strip the data:image/...;base64, prefix — server needs raw base64
+      const full = e.target.result;
+      pendingImage = full.split(',')[1];
+      imgThumb.src = full;
+      imgPreview.classList.add('active');
+      imgBtn.classList.add('has-image');
+    };
+    reader.readAsDataURL(file);
+    imgInput.value = '';
+  });
+
+  imgClear.addEventListener('click', clearImage);
+
+  function clearImage() {
+    pendingImage = null;
+    pendingMime  = 'image/jpeg';
+    imgThumb.src = '';
+    imgPreview.classList.remove('active');
+    imgBtn.classList.remove('has-image');
+  }
+
   // auto-resize
   input.addEventListener('input', () => {
     input.style.height = 'auto';
@@ -409,14 +528,23 @@
   });
   sendBtn.addEventListener('click', send);
 
-  function addMsg(role, text, meta) {
+  function addMsg(role, text, meta, imgSrc) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}`;
 
-    const t = document.createElement('span');
-    t.className = 'text';
-    t.textContent = text;
-    wrap.appendChild(t);
+    if (imgSrc) {
+      const img = document.createElement('img');
+      img.className = 'chat-img';
+      img.src = imgSrc;
+      wrap.appendChild(img);
+    }
+
+    if (text) {
+      const t = document.createElement('span');
+      t.className = 'text';
+      t.textContent = text;
+      wrap.appendChild(t);
+    }
 
     if (meta) {
       const m = document.createElement('span');
@@ -458,12 +586,21 @@
 
   async function send() {
     const txt = input.value.trim();
-    if (!txt || busy) return;
+    if ((!txt && !pendingImage) || busy) return;
     busy = true;
+
+    const sentImg  = pendingImage ? ('data:' + pendingMime + ';base64,' + pendingImage) : null;
+    const sendData = { message: txt };
+    if (pendingImage) {
+      sendData.image      = pendingImage;
+      sendData.image_mime = pendingMime;
+    }
+
     input.value = '';
     input.style.height = 'auto';
+    clearImage();
 
-    addMsg('user', txt);
+    addMsg('user', txt, null, sentImg);
     orb.classList.add('thinking');
     emoBar.textContent = '';
     startTimer();
@@ -472,7 +609,7 @@
       const res  = await fetch('/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({message: txt}),
+        body: JSON.stringify(sendData),
       });
       const d = await res.json();
       orb.classList.remove('thinking');

@@ -80,29 +80,34 @@ Valid JSON only. No extra text."""
 # ── main entry point ───────────────────────────────────────────────────────
 
 def process(user_text: str, emotions: dict, will_lie: float, withdrawn: float,
-            api_key: str = "", groq_key: str = "") -> dict:
+            api_key: str = "", groq_key: str = "",
+            history: list = None,
+            image_data: str = "", image_mime: str = "image/jpeg") -> dict:
     """
     Analyze user input and generate CAINE's response in one call.
     Priority: Ollama (local) → Groq → Gemini → empty fallback.
+    history: list of {"user": ..., "caine": ...} dicts (last N exchanges).
+    image_data: base64-encoded image string (Gemini only).
     """
     default = {"concept": "", "hostility": 0.0, "curiosity": 0.0, "response": ""}
     prompt  = _build_prompt(user_text, emotions, will_lie, withdrawn)
+    hist    = (history or [])[-10:]  # last 10 exchanges as context
 
     # 1. Ollama — local, no rate limits (skip if cloud mode)
     if _BACKEND != "cloud":
-        result = _call_ollama(prompt)
+        result = _call_ollama(prompt, hist)
         if result.get("response"):
             return result
 
     # 2. Groq — cloud (skip if local-only mode)
     if _BACKEND != "local" and groq_key:
-        result = _call_groq(groq_key, prompt)
+        result = _call_groq(groq_key, prompt, hist)
         if result.get("response"):
             return result
 
-    # 3. Gemini — cloud (skip if local-only mode)
+    # 3. Gemini — cloud, supports images (skip if local-only mode)
     if _BACKEND != "local" and api_key:
-        result = _call_gemini(api_key, prompt)
+        result = _call_gemini(api_key, prompt, hist, image_data, image_mime)
         if result.get("response"):
             return result
 
@@ -146,14 +151,16 @@ def _build_prompt(user_text: str, emotions: dict, will_lie: float, withdrawn: fl
 
 # ── Ollama call (local) ────────────────────────────────────────────────────
 
-def _call_ollama(prompt: str) -> dict:
+def _call_ollama(prompt: str, history: list = None) -> dict:
     """Call local Ollama instance. Returns {} if Ollama isn't running."""
+    messages = [{"role": "system", "content": _SYSTEM}]
+    for h in (history or []):
+        messages.append({"role": "user",      "content": h["user"]})
+        messages.append({"role": "assistant", "content": h["caine"]})
+    messages.append({"role": "user", "content": prompt})
     payload = {
         "model":    OLLAMA_MODEL,
-        "messages": [
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user",   "content": prompt},
-        ],
+        "messages": messages,
         "temperature": 0.75,
         "max_tokens":  200,
         "stream":      False,
@@ -172,13 +179,24 @@ def _call_ollama(prompt: str) -> dict:
         return {}   # Ollama not running — fall through to cloud
 
 
-# ── Gemini call ────────────────────────────────────────────────────────────
+# ── Gemini call (supports images + history) ────────────────────────────────
 
-def _call_gemini(api_key: str, prompt: str) -> dict:
+def _call_gemini(api_key: str, prompt: str, history: list = None,
+                 image_data: str = "", image_mime: str = "image/jpeg") -> dict:
     url = GEMINI_URL.format(key=api_key)
+    # build conversation history in Gemini format
+    contents = []
+    for h in (history or []):
+        contents.append({"role": "user",  "parts": [{"text": h["user"]}]})
+        contents.append({"role": "model", "parts": [{"text": h["caine"]}]})
+    # current message — with optional image
+    parts = [{"text": prompt}]
+    if image_data:
+        parts.append({"inline_data": {"mime_type": image_mime, "data": image_data}})
+    contents.append({"role": "user", "parts": parts})
     payload = {
         "system_instruction": {"parts": [{"text": _SYSTEM}]},
-        "contents":           [{"parts": [{"text": prompt}]}],
+        "contents":           contents,
         "generationConfig":   {"temperature": 0.75, "maxOutputTokens": 200},
     }
     try:
@@ -186,7 +204,7 @@ def _call_gemini(api_key: str, prompt: str) -> dict:
         req  = urllib.request.Request(
             url, data=data, headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        with urllib.request.urlopen(req, timeout=20) as resp:
             result = json.loads(resp.read())
         raw = result["candidates"][0]["content"]["parts"][0]["text"].strip()
         return _parse_json(raw)
@@ -196,13 +214,15 @@ def _call_gemini(api_key: str, prompt: str) -> dict:
 
 # ── Groq call ──────────────────────────────────────────────────────────────
 
-def _call_groq(groq_key: str, prompt: str) -> dict:
+def _call_groq(groq_key: str, prompt: str, history: list = None) -> dict:
+    messages = [{"role": "system", "content": _SYSTEM}]
+    for h in (history or []):
+        messages.append({"role": "user",      "content": h["user"]})
+        messages.append({"role": "assistant", "content": h["caine"]})
+    messages.append({"role": "user", "content": prompt})
     payload = {
         "model":       GROQ_MODEL,
-        "messages":    [
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user",   "content": prompt},
-        ],
+        "messages":    messages,
         "temperature": 0.75,
         "max_tokens":  200,
     }

@@ -87,6 +87,9 @@ class CaineField:
         self.iq = 0.500
         self.dim = DIM   # expose for SentientFile.into_field
 
+        # ── conversation history (RAM only — not saved to disk) ──
+        self.history = []  # list of {"user": str, "caine": str}
+
         # load .syn architecture first (wires the brain)
         self.arch = load_syn(SYN_FILE)
         apply_syn(self, self.arch)
@@ -182,8 +185,8 @@ class CaineField:
         baseline[5] = 0.50  # baseline curiosity
         self.state += (baseline - self.state) * 0.02
 
-        # 6. working memory fades
-        self.state[32:] *= 0.95
+        # 6. working memory fades (0.98 per tick = much slower than 0.95)
+        self.state[32:] *= 0.98
 
         # 7. clamp everything to [0, 1]
         np.clip(self.state, 0.0, 1.0, out=self.state)
@@ -537,6 +540,7 @@ def main():
                 withdrawn=field.withdrawn,
                 api_key=GEMINI_KEY,
                 groq_key=GROQ_KEY,
+                history=field.history,
             )
             gemini_concept   = result.get('concept',   '').strip()
             gemini_hostility = float(result.get('hostility', 0.0))
@@ -575,6 +579,12 @@ def main():
             # 9. fallback if Gemini was rate-limited
             if not response:
                 response = field.speak(gemini_concept)
+
+            # 10. store in conversation history (RAM — survives the session)
+            if response:
+                field.history.append({"user": user_input, "caine": response})
+                if len(field.history) > 20:
+                    field.history = field.history[-20:]
 
             field.exchanges += 1
 

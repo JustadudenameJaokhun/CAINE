@@ -62,7 +62,9 @@ def state():
 def chat():
     data       = request.get_json(force=True)
     user_input = data.get('message', '').strip()
-    if not user_input:
+    image_data = data.get('image', '')
+    image_mime = data.get('image_mime', 'image/jpeg')
+    if not user_input and not image_data:
         return jsonify({'response': '', 'emotions': field.emotions})
 
     # encode & recall
@@ -80,7 +82,9 @@ def chat():
 
     # process with AI
     result           = process(user_input, field.emotions, field.will_lie,
-                               field.withdrawn, GEMINI_KEY, GROQ_KEY)
+                               field.withdrawn, GEMINI_KEY, GROQ_KEY,
+                               history=field.history,
+                               image_data=image_data, image_mime=image_mime)
     gemini_concept   = result.get('concept',   '').strip()
     gemini_hostility = float(result.get('hostility', 0.0))
     gemini_curiosity = float(result.get('curiosity', 0.0))
@@ -114,6 +118,12 @@ def chat():
     field.exchanges += 1
     if not response:
         response = field.speak(gemini_concept)
+
+    # store in conversation history (RAM — gives CAINE memory within a session)
+    if response:
+        field.history.append({"user": user_input, "caine": response})
+        if len(field.history) > 20:
+            field.history = field.history[-20:]
 
     # auto-save every 10 exchanges
     if field.exchanges % 10 == 0:
