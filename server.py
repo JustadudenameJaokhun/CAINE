@@ -14,23 +14,32 @@ sys.path.insert(0, os.path.join(ROOT, 'core'))
 sys.path.insert(0, ROOT)
 
 import numpy as np
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from caine import CaineField, N_EMOTIONS
 from thinker import process
 
-# keys: environment variables take priority over config.py
-GEMINI_KEY = os.environ.get("GEMINI_KEY", "")
-GROQ_KEY   = os.environ.get("GROQ_KEY",   "")
-if not GEMINI_KEY or not GROQ_KEY:
-    try:
-        from config import GEMINI_KEY as _gk, GROQ_KEY as _rk
-        GEMINI_KEY = GEMINI_KEY or _gk
-        GROQ_KEY   = GROQ_KEY   or _rk
-    except ImportError:
-        pass
+# ── config: env vars first, then config.py ─────────────────────────────────
+GEMINI_KEY       = os.environ.get("GEMINI_KEY", "")
+GROQ_KEY         = os.environ.get("GROQ_KEY",   "")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+SECRET_KEY       = os.environ.get("SECRET_KEY", "")
+try:
+    from config import (GEMINI_KEY as _gk, GROQ_KEY as _rk,
+                        GOOGLE_CLIENT_ID as _gc, SECRET_KEY as _sk)
+    GEMINI_KEY       = GEMINI_KEY       or _gk
+    GROQ_KEY         = GROQ_KEY         or _rk
+    GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID or _gc
+    SECRET_KEY       = SECRET_KEY       or _sk
+except ImportError:
+    pass
+
+CREATOR_EMAIL = "rewindjames@gmail.com"
 
 app = Flask(__name__, template_folder=os.path.join(ROOT, 'templates'))
+app.secret_key = SECRET_KEY or "caine-dev-secret"
 
 # ── load CAINE once at startup ─────────────────────────────────────────────
 field = CaineField()
@@ -84,21 +93,58 @@ threading.Thread(target=_heartbeat, daemon=True).start()
 
 # ── routes ─────────────────────────────────────────────────────────────────
 
+def _logged_in():
+    return bool(session.get('email'))
+
+def _is_creator():
+    return session.get('email') == CREATOR_EMAIL
+
+
+@app.route('/auth', methods=['POST'])
+def auth():
+    """Verify Google Identity Services JWT and create session."""
+    credential = request.get_json(force=True).get('credential', '')
+    if not credential:
+        return jsonify({'ok': False, 'error': 'no credential'}), 400
+    try:
+        info = id_token.verify_oauth2_token(
+            credential, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+        session['email']   = info['email']
+        session['name']    = info.get('name', info['email'])
+        session['picture'] = info.get('picture', '')
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 401
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
+
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    if not _logged_in():
+        return render_template('login.html', client_id=GOOGLE_CLIENT_ID)
+    return render_template('index.html',
+                           user_name=session.get('name', ''),
+                           user_pic=session.get('picture', ''),
+                           is_creator=_is_creator())
 
 
 _last_typing_ts = 0.0
 
 @app.route('/typing', methods=['POST'])
 def typing():
-    """
-    Receives the user's partial text as they type — CAINE is listening live.
+    """Receives the user's partial text as they type — CAINE is listening live.
     Returns: { interrupt: str|null, listening: bool }
     - interrupt: CAINE jumped in with a thought (from his own field, not LLM)
     - listening: False when CAINE is too withdrawn to care
     """
+    if not _logged_in():
+        return jsonify({'interrupt': None, 'listening': False}), 401
     global _last_typing_ts
     now = time.time()
 
@@ -137,6 +183,8 @@ def typing():
 
 @app.route('/state')
 def state():
+    if not _logged_in():
+        return jsonify({'error': 'unauthorized'}), 401
     """Current emotional state — used by frontend to animate the orb."""
     emo = field.emotions
     return jsonify({
@@ -153,6 +201,8 @@ def state():
 
 @app.route('/chat', methods=['POST'])
 def chat():
+    if not _logged_in():
+        return jsonify({'error': 'unauthorized'}), 401
     data       = request.get_json(force=True)
     user_input = data.get('message', '').strip()
     image_data = data.get('image', '')
@@ -177,7 +227,7 @@ def chat():
     for i in range(5):
         field.step(input_vec if i == 0 else None)
 
-    is_creator = request.remote_addr in ('127.0.0.1', '::1')
+    is_creator = _is_creator()
 
     result           = process(user_input, field.emotions, field.will_lie,
                                field.withdrawn, GEMINI_KEY, GROQ_KEY,

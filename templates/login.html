@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAINE</title>
+  <meta name="theme-color" content="#0b0b0b">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:     #0b0b0b;
+      --grid:   rgba(255,255,255,0.032);
+      --red:    #ff1a1a;
+      --text:   #c8c8c8;
+      --dim:    #333;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, sans-serif;
+      font-weight: 300;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 56px 56px;
+      pointer-events: none;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);
+      pointer-events: none;
+    }
+
+    #wrap {
+      position: relative;
+      z-index: 1;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+
+    #orb {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 36% 32%, #ff6060 0%, #ff1a1a 45%, #990000 100%);
+      box-shadow:
+        0 0 0 1px rgba(255,20,20,0.15),
+        0 0 22px 6px  rgba(255,15,15,0.75),
+        0 0 55px 20px rgba(255,5,5,0.38),
+        0 0 110px 45px rgba(180,0,0,0.18);
+      animation: breathe 4.5s ease-in-out infinite;
+    }
+
+    @keyframes breathe {
+      0%,100% { box-shadow: 0 0 0 1px rgba(255,20,20,0.15), 0 0 22px 6px rgba(255,15,15,0.75), 0 0 55px 20px rgba(255,5,5,0.38), 0 0 110px 45px rgba(180,0,0,0.18); }
+      50%      { box-shadow: 0 0 0 1px rgba(255,20,20,0.20), 0 0 32px 10px rgba(255,15,15,0.90), 0 0 75px 28px rgba(255,5,5,0.50), 0 0 140px 60px rgba(200,0,0,0.24); }
+    }
+
+    #label {
+      margin-top: 22px;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.44em;
+      color: var(--dim);
+      text-transform: uppercase;
+      padding-left: 0.44em;
+    }
+
+    #tagline {
+      margin-top: 14px;
+      font-size: 11px;
+      color: #222;
+      letter-spacing: 0.06em;
+    }
+
+    #login-area {
+      margin-top: 44px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Google sign-in button override to match dark theme */
+    .g_id_signin {
+      filter: invert(0.88) hue-rotate(180deg) brightness(0.6);
+      transition: filter 0.2s;
+    }
+    .g_id_signin:hover {
+      filter: invert(0.88) hue-rotate(180deg) brightness(0.85);
+    }
+
+    #hint {
+      margin-top: 8px;
+      font-size: 9px;
+      color: #1e1e1e;
+      letter-spacing: 0.1em;
+    }
+
+    #error-msg {
+      margin-top: 16px;
+      font-size: 10px;
+      color: #662222;
+      letter-spacing: 0.08em;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div id="orb"></div>
+  <div id="label">C A I N E</div>
+  <div id="tagline">to speak with him, identify yourself</div>
+
+  <div id="login-area">
+    <div id="g_id_onload"
+         data-client_id="{{ client_id }}"
+         data-callback="onGoogleSignIn"
+         data-auto_prompt="false">
+    </div>
+    <div class="g_id_signin"
+         data-type="standard"
+         data-shape="rectangular"
+         data-theme="outline"
+         data-text="sign_in_with"
+         data-size="large"
+         data-logo_alignment="left">
+    </div>
+    <div id="hint">use your Google account</div>
+    <div id="error-msg" id="err">something went wrong — try again</div>
+  </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+  async function onGoogleSignIn(response) {
+    try {
+      const r = await fetch('/auth', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({credential: response.credential}),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        window.location.href = '/';
+      } else {
+        document.getElementById('error-msg').style.display = 'block';
+      }
+    } catch {
+      document.getElementById('error-msg').style.display = 'block';
+    }
+  }
+</script>
+</body>
+</html>
