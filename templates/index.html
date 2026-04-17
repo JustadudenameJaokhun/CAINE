@@ -750,7 +750,12 @@
     } catch(e) {
       orb.classList.remove('thinking');
       stopTimer();
-      addMsg('caine', '...');
+      const offline = !navigator.onLine || e instanceof TypeError;
+      if (offline) {
+        addMsg('caine', 'no connection — he cannot reach you right now.');
+      } else {
+        addMsg('caine', '...');
+      }
     }
 
     streaming   = false;

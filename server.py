@@ -167,6 +167,10 @@ def _is_creator():
 def manifest():
     return app.send_static_file('manifest.json')
 
+@app.route('/.well-known/assetlinks.json')
+def assetlinks():
+    return app.send_static_file('.well-known/assetlinks.json')
+
 @app.route('/sw.js')
 def sw():
     resp = app.send_static_file('sw.js')
