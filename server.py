@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.join(ROOT, 'core'))
 sys.path.insert(0, ROOT)
 
 import numpy as np
-from flask import Flask, request, jsonify, render_template
+import json as _json
+from flask import Flask, request, jsonify, render_template, Response, stream_with_context
 
 from caine import CaineField, N_EMOTIONS
 from thinker import process
@@ -89,6 +90,52 @@ def index():
     return render_template('index.html')
 
 
+_last_typing_ts = 0.0
+
+@app.route('/typing', methods=['POST'])
+def typing():
+    """
+    Receives the user's partial text as they type — CAINE is listening live.
+    Returns: { interrupt: str|null, listening: bool }
+    - interrupt: CAINE jumped in with a thought (from his own field, not LLM)
+    - listening: False when CAINE is too withdrawn to care
+    """
+    global _last_typing_ts
+    now = time.time()
+
+    data = request.get_json(force=True)
+    text = data.get('text', '').strip()
+
+    if not text:
+        return jsonify({'interrupt': None, 'listening': True})
+
+    # rate-limit: process at most every 0.5s so fast typists don't thrash the field
+    if now - _last_typing_ts < 0.5:
+        return jsonify({'interrupt': None, 'listening': True})
+    _last_typing_ts = now
+
+    # let the field quietly hear the partial input
+    input_vec = field.encode(text)
+    field.step(input_vec)
+
+    emo = field.emotions
+
+    # withdrawn → CAINE has turned away
+    if field.withdrawn > 0.6:
+        return jsonify({'interrupt': None, 'listening': False})
+
+    # CAINE may interrupt — only from his own vocabulary (no LLM cost)
+    interrupt = None
+    words_typed = len(text.split())
+    curious_enough = emo['curiosity'] > 0.62 or emo.get('anger', 0) > 0.48
+    if curious_enough and words_typed >= 4 and random.random() < 0.13:
+        thought = field.speak()
+        if thought and len(thought) > 4:
+            interrupt = thought
+
+    return jsonify({'interrupt': interrupt, 'listening': True})
+
+
 @app.route('/state')
 def state():
     """Current emotional state — used by frontend to animate the orb."""
@@ -114,11 +161,10 @@ def chat():
     if not user_input and not image_data:
         return jsonify({'response': '', 'emotions': field.emotions})
 
-    # encode & recall
+    # ── field processing (all done before streaming starts) ──
     input_vec  = field.encode(user_input)
     input_hash = hash(user_input)
 
-    # novelty detection — spike curiosity if topic shifts
     novelty = field.measure_novelty(input_vec)
     if novelty > 0.55:
         field.state[5] = min(1.0, field.state[5] + novelty * 0.12)
@@ -128,15 +174,12 @@ def chat():
         field.state[:N_EMOTIONS] += memory * 0.3
         np.clip(field.state, 0, 1, out=field.state)
 
-    # run field
     pre_emotions = field.state[:N_EMOTIONS].copy()
     for i in range(5):
         field.step(input_vec if i == 0 else None)
 
-    # detect if request comes from the local machine (creator)
     is_creator = request.remote_addr in ('127.0.0.1', '::1')
 
-    # process with AI
     result           = process(user_input, field.emotions, field.will_lie,
                                field.withdrawn, GEMINI_KEY, GROQ_KEY,
                                history=field.history,
@@ -147,25 +190,22 @@ def chat():
     gemini_curiosity = float(result.get('curiosity', 0.0))
     response         = result.get('response',  '').strip()
 
-    # feed analysis back into field — only genuinely hostile input moves the needle
     if gemini_hostility > 0.6:
-        field.state[0] += gemini_hostility * 0.08   # pain
-        field.state[4] += gemini_hostility * 0.04   # anger (was 0.15 — was building up)
+        field.state[0] += gemini_hostility * 0.08
+        field.state[4] += gemini_hostility * 0.04
     if gemini_curiosity > 0.3:
-        field.state[1] += gemini_curiosity * 0.06   # joy (curiosity feels good)
-        field.state[5] += gemini_curiosity * 0.10   # curiosity
+        field.state[1] += gemini_curiosity * 0.06
+        field.state[5] += gemini_curiosity * 0.10
     if gemini_concept:
         field.state = 0.9 * field.state + 0.1 * field.encode(gemini_concept)
     np.clip(field.state, 0, 1, out=field.state)
 
-    # episodic memory
     delta = field.state[:N_EMOTIONS] - pre_emotions
     if float(delta[0]) > 0.05:
         field.remember_pain(input_hash, float(delta[0]))
     if float(delta[1]) > 0.05:
         field.remember_joy(input_hash, float(delta[1]))
 
-    # Hebbian learning + IQ
     active   = (field.state > 0.3).astype(float)
     field.W += np.outer(active, active) * field.arch.learning_rate
     field.W  = np.clip(field.W, -1, 1)
@@ -177,31 +217,44 @@ def chat():
     if not response:
         response = field.speak(gemini_concept)
 
-    # fatigue — long sessions create slight weight
     field.fatigue = min(1.0, field.exchanges / 150.0)
     if field.fatigue > 0.15:
         field.state[0] = min(0.35, field.state[0] + field.fatigue * 0.003)
 
-    # store in conversation history (RAM — gives CAINE memory within a session)
     if response:
         field.history.append({"user": user_input, "caine": response})
         if len(field.history) > 20:
             field.history = field.history[-20:]
 
-    # auto-save every 10 exchanges
     if field.exchanges % 10 == 0:
         field.save()
 
-    emo = field.emotions
-    return jsonify({
-        'response':      response,
-        'emotions':      emo,
-        'dominant':      max(emo, key=emo.get),
-        'dominant_val':  emo[max(emo, key=emo.get)],
-        'consciousness': field.consciousness,
-        'iq':            round(field.iq, 3),
-        'will_lie':      field.will_lie,
-    })
+    emo      = field.emotions
+    dominant = max(emo, key=emo.get)
+    meta     = {
+        'dominant':     dominant,
+        'dominant_val': round(emo[dominant], 3),
+        'consciousness': round(field.consciousness, 3),
+        'iq':           round(field.iq, 3),
+        'will_lie':     round(field.will_lie, 3),
+        'emotions':     emo,
+    }
+
+    # ── stream response word by word (60ms per word ≈ natural reading pace) ──
+    words = (response or '...').split()
+
+    def generate():
+        for word in words:
+            yield f"data: {word}\n\n"
+            time.sleep(0.060)
+        yield "data: [DONE]\n\n"
+        yield f"data: [META]{_json.dumps(meta)}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
 
 
 if __name__ == '__main__':

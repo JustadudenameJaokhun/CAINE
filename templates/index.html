@@ -406,6 +406,13 @@
     }
     #img-clear:hover { color: #666; }
 
+    /* ── CAINE interrupt (mid-typing) ───────────────────────── */
+    .msg.interrupt .text {
+      font-style: italic;
+      color: #383838;
+      font-size: 12.5px;
+    }
+
     /* ── image in chat ───────────────────────────────────────── */
     .msg.user .chat-img {
       display: block;
@@ -489,22 +496,26 @@
   const imgPreview     = document.getElementById('img-preview');
   const imgThumb       = document.getElementById('img-thumb');
   const imgClear       = document.getElementById('img-clear');
-  let busy = false;
-  let timerInterval = null;
-  let pendingImage = null;
-  let pendingMime  = 'image/jpeg';
-  let lastThought  = '';
 
+  let busy            = false;
+  let streaming       = false;    // CAINE is currently speaking
+  let interrupted     = false;    // user interrupted CAINE mid-stream
+  let timerInterval   = null;
+  let typingTimer     = null;
+  let pendingImage    = null;
+  let pendingMime     = 'image/jpeg';
+  let lastThought     = '';
+  let listeningState  = true;     // is CAINE listening right now
+
+  // ── timer ─────────────────────────────────────────────────────
   function startTimer() {
     const start = Date.now();
     thinkingWrap.classList.add('active');
     thinkingTimer.textContent = '0.0s';
     timerInterval = setInterval(() => {
-      const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-      thinkingTimer.textContent = elapsed + 's';
+      thinkingTimer.textContent = ((Date.now()-start)/1000).toFixed(1)+'s';
     }, 100);
   }
-
   function stopTimer() {
     clearInterval(timerInterval);
     timerInterval = null;
@@ -514,14 +525,12 @@
 
   // ── image handling ────────────────────────────────────────────
   imgBtn.addEventListener('click', () => imgInput.click());
-
   imgInput.addEventListener('change', () => {
     const file = imgInput.files[0];
     if (!file) return;
     pendingMime = file.type || 'image/jpeg';
     const reader = new FileReader();
     reader.onload = e => {
-      // strip the data:image/...;base64, prefix — server needs raw base64
       const full = e.target.result;
       pendingImage = full.split(',')[1];
       imgThumb.src = full;
@@ -531,144 +540,216 @@
     reader.readAsDataURL(file);
     imgInput.value = '';
   });
-
   imgClear.addEventListener('click', clearImage);
-
   function clearImage() {
-    pendingImage = null;
-    pendingMime  = 'image/jpeg';
+    pendingImage = null; pendingMime = 'image/jpeg';
     imgThumb.src = '';
     imgPreview.classList.remove('active');
     imgBtn.classList.remove('has-image');
   }
 
-  // auto-resize
+  // ── live typing → server ──────────────────────────────────────
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+    // interrupt CAINE if he's speaking
+    if (streaming) { interrupted = true; return; }
+    // send live typing to server (debounced 380ms)
+    clearTimeout(typingTimer);
+    const txt = input.value;
+    if (txt.length > 0) {
+      typingTimer = setTimeout(() => sendTyping(txt), 380);
+    }
   });
 
+  async function sendTyping(text) {
+    if (busy) return;
+    try {
+      const r = await fetch('/typing', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text}),
+      });
+      const d = await r.json();
+      listeningState = d.listening !== false;
+      // update placeholder to show whether CAINE is listening
+      input.placeholder = listeningState ? 'speak' : '— turned away —';
+      // CAINE interrupted mid-typing
+      if (d.interrupt) {
+        addMsg('caine-interrupt', d.interrupt);
+      }
+    } catch {}
+  }
+
+  // ── Enter = done speaking ─────────────────────────────────────
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // any keypress during CAINE's stream = interrupt
+      if (streaming) { interrupted = true; return; }
+      speak();
+    }
   });
-  sendBtn.addEventListener('click', send);
+  sendBtn.addEventListener('click', () => { if (!streaming) speak(); });
 
+  // any keypress while CAINE is streaming = interrupt him
+  document.addEventListener('keydown', e => {
+    if (streaming && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      interrupted = true;
+    }
+  });
+
+  // ── message display ───────────────────────────────────────────
   function addMsg(role, text, meta, imgSrc) {
     const wrap = document.createElement('div');
-    wrap.className = `msg ${role}`;
-
+    // 'caine-interrupt' shows as caine but with a faint italic style
+    wrap.className = role === 'caine-interrupt' ? 'msg caine interrupt' : `msg ${role}`;
     if (imgSrc) {
       const img = document.createElement('img');
-      img.className = 'chat-img';
-      img.src = imgSrc;
+      img.className = 'chat-img'; img.src = imgSrc;
       wrap.appendChild(img);
     }
-
     if (text) {
       const t = document.createElement('span');
       t.className = 'text';
       t.textContent = text;
       wrap.appendChild(t);
     }
-
     if (meta) {
       const m = document.createElement('span');
-      m.className = 'meta';
-      m.textContent = meta;
+      m.className = 'meta'; m.textContent = meta;
       wrap.appendChild(m);
     }
-
     chat.appendChild(wrap);
     chat.scrollTop = chat.scrollHeight;
+    return wrap;
   }
 
   function updateOrb(d) {
     const emo = d.emotions || {};
-    const dom = d.dominant || 'curiosity';
     const val = d.dominant_val || 0.2;
     const con = d.consciousness || 0.15;
-
-    // scale glow layers with dominant emotion intensity
-    const i1 = (0.70 + val * 0.30).toFixed(2);
-    const i2 = (0.35 + val * 0.20).toFixed(2);
-    const i3 = (0.16 + con * 0.10).toFixed(2);
-    const r  = Math.round(6 + val * 18);
-
+    const i1  = (0.70 + val * 0.30).toFixed(2);
+    const i2  = (0.35 + val * 0.20).toFixed(2);
+    const i3  = (0.16 + con * 0.10).toFixed(2);
+    const r   = Math.round(6 + val * 18);
     orb.style.boxShadow = `
       0 0 0 1px rgba(255,${r},${r},0.18),
       0 0 ${Math.round(22+val*18)}px ${Math.round(6+val*8)}px rgba(255,${r},${r},${i1}),
       0 0 ${Math.round(55+val*40)}px ${Math.round(20+val*16)}px rgba(255,5,5,${i2}),
       0 0 ${Math.round(110+val*80)}px ${Math.round(45+val*35)}px rgba(180,0,0,${i3}),
-      0 0 ${Math.round(200+val*100)}px ${Math.round(80+val*50)}px rgba(120,0,0,0.07)
-    `;
-
-    // emotion bar — top 2 by value
+      0 0 ${Math.round(200+val*100)}px ${Math.round(80+val*50)}px rgba(120,0,0,0.07)`;
     const top = Object.entries(emo)
-      .sort((a, b) => b[1] - a[1]).slice(0, 2)
-      .map(([k, v]) => `${k}  ${(v*100).toFixed(0)}`).join('   ·   ');
+      .sort((a,b) => b[1]-a[1]).slice(0,2)
+      .map(([k,v]) => `${k}  ${(v*100).toFixed(0)}`).join('   ·   ');
     emoBar.textContent = top;
   }
 
-  async function send() {
+  // ── speak (full message) — streams response back ──────────────
+  async function speak() {
     const txt = input.value.trim();
     if ((!txt && !pendingImage) || busy) return;
     busy = true;
+    interrupted = false;
 
-    const sentImg  = pendingImage ? ('data:' + pendingMime + ';base64,' + pendingImage) : null;
-    const sendData = { message: txt };
-    if (pendingImage) {
-      sendData.image      = pendingImage;
-      sendData.image_mime = pendingMime;
-    }
+    const sentImg  = pendingImage ? ('data:'+pendingMime+';base64,'+pendingImage) : null;
+    const sendData = {message: txt};
+    if (pendingImage) { sendData.image = pendingImage; sendData.image_mime = pendingMime; }
 
     input.value = '';
     input.style.height = 'auto';
+    input.placeholder = 'speak';
     clearImage();
+    clearTimeout(typingTimer);
 
     addMsg('user', txt, null, sentImg);
     orb.classList.add('thinking');
     emoBar.textContent = '';
     startTimer();
 
+    // create CAINE's message bubble now — we'll fill it word by word
+    const caineWrap = addMsg('caine', '', null);
+    const caineText = caineWrap.querySelector('.text');
+
     try {
-      const res  = await fetch('/chat', {
+      const res = await fetch('/chat', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(sendData),
       });
-      const d = await res.json();
+
       orb.classList.remove('thinking');
       stopTimer();
-      updateOrb(d);
+      streaming = true;
 
-      const meta = [
-        d.dominant ? `${d.dominant}  ${(d.dominant_val*100).toFixed(0)}` : '',
-        d.iq       ? `iq  ${d.iq}` : '',
-      ].filter(Boolean).join('     ');
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf   = '';
+      let words = [];
+      let meta  = null;
 
-      addMsg('caine', d.response || '...', meta);
+      outer: while (true) {
+        // user interrupted — stop reading
+        if (interrupted) { reader.cancel(); break; }
+
+        const {done, value} = await reader.read();
+        if (done) break;
+
+        buf += decoder.decode(value, {stream: true});
+        const lines = buf.split('\n');
+        buf = lines.pop();  // keep incomplete last line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const content = line.slice(6);
+          if (content === '[DONE]') continue;
+          if (content.startsWith('[META]')) {
+            try { meta = JSON.parse(content.slice(6)); } catch {}
+            break outer;
+          }
+          if (interrupted) { reader.cancel(); break outer; }
+          words.push(content);
+          caineText.textContent = words.join(' ');
+          chat.scrollTop = chat.scrollHeight;
+        }
+      }
+
+      // attach metadata under the message
+      if (meta) {
+        updateOrb(meta);
+        const m = document.createElement('span');
+        m.className = 'meta';
+        m.textContent = `${meta.dominant}  ${Math.round(meta.dominant_val*100)}     iq  ${meta.iq}`;
+        caineWrap.appendChild(m);
+      }
+
+      if (interrupted && words.length) {
+        // mark as cut off
+        caineText.textContent = words.join(' ') + ' —';
+      }
+
     } catch {
       orb.classList.remove('thinking');
       stopTimer();
-      addMsg('caine', '...');
+      caineText.textContent = '...';
     }
 
-    busy = false;
+    streaming   = false;
+    interrupted = false;
+    busy        = false;
     input.focus();
   }
 
-  // idle state poll — also surfaces ambient thoughts
+  // ── idle poll — ambient thoughts ──────────────────────────────
   setInterval(async () => {
     if (busy) return;
     try {
       const d = await (await fetch('/state')).json();
       updateOrb(d);
-      // show ambient thought if it changed and CAINE isn't being talked to
       if (d.thought && d.thought !== lastThought) {
         lastThought = d.thought;
         ambientThought.textContent = d.thought;
         ambientThought.classList.add('visible');
-        // fade out after 8 seconds
         setTimeout(() => ambientThought.classList.remove('visible'), 8000);
       }
     } catch {}
