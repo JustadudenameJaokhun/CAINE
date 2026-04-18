@@ -2,15 +2,18 @@ package com.caine.app
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.browser.customtabs.CustomTabsIntent
 
 class MainActivity : AppCompatActivity() {
 
@@ -21,13 +24,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // pure black status bar, no title bar
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-        window.statusBarColor  = Color.parseColor("#0b0b0b")
+        window.statusBarColor     = Color.parseColor("#0b0b0b")
         window.navigationBarColor = Color.parseColor("#0b0b0b")
         supportActionBar?.hide()
 
-        // full-screen immersive
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
           or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
@@ -42,32 +43,47 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.settings.apply {
-            javaScriptEnabled        = true
-            domStorageEnabled        = true
-            databaseEnabled          = true
-            allowFileAccess          = true
-            cacheMode                = WebSettings.LOAD_DEFAULT
-            mediaPlaybackRequiresUserGesture = false
-            setSupportMultipleWindows(true)
-            javaScriptCanOpenWindowsAutomatically = true
+            javaScriptEnabled    = true
+            domStorageEnabled    = true
+            databaseEnabled      = true
+            allowFileAccess      = true
+            cacheMode            = WebSettings.LOAD_DEFAULT
             setSupportZoom(false)
-            displayZoomControls      = false
-            useWideViewPort          = true
-            loadWithOverviewMode     = true
-            // keep a real Chrome UA so Google Sign-In renders correctly
-            userAgentString          = userAgentString.replace("; wv", "")
+            displayZoomControls  = false
+            useWideViewPort      = true
+            loadWithOverviewMode = true
+            // strip "; wv" so Google Identity Services renders the sign-in button
+            userAgentString      = userAgentString.replace("; wv", "")
+        }
+
+        android.webkit.CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
         }
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean {
                 val url = req.url.toString()
-                // keep everything inside the app
-                return if (url.startsWith("https://caine-ye8z.onrender.com") ||
-                           url.startsWith("https://accounts.google.com")) {
-                    false
-                } else {
-                    true
+                return when {
+                    // our app — stay in WebView
+                    url.startsWith(CAINE_URL) -> false
+                    // Google accounts — open in Chrome Custom Tab so auth works reliably,
+                    // then the tab closes and brings user back here
+                    url.contains("accounts.google.com") -> {
+                        openCustomTab(url)
+                        true
+                    }
+                    // everything else — open in external browser
+                    else -> {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        true
+                    }
                 }
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                // after any page load, sync cookies so session persists
+                android.webkit.CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(
@@ -81,45 +97,35 @@ class MainActivity : AppCompatActivity() {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(msg: ConsoleMessage?) = true
-            override fun onCreateWindow(
-                view: WebView, isDialog: Boolean, isUserGesture: Boolean, msg: android.os.Message
-            ): Boolean {
-                val popup = WebView(this@MainActivity)
-                popup.settings.javaScriptEnabled = true
-                val transport = msg.obj as WebView.WebViewTransport
-                transport.webView = popup
-                msg.sendToTarget()
-                return true
-            }
-        }
-
-        // allow third-party cookies (needed for Google Sign-In)
-        android.webkit.CookieManager.getInstance().apply {
-            setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
         }
 
         setContentView(webView)
 
-        if (isOnline()) {
-            webView.loadUrl(CAINE_URL)
-        } else {
-            webView.loadUrl("file:///android_asset/offline.html")
-        }
+        if (isOnline()) webView.loadUrl(CAINE_URL)
+        else webView.loadUrl("file:///android_asset/offline.html")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        // coming back from Custom Tab auth — reload so session cookie takes effect
+        if (isOnline()) webView.reload()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        webView.onPause()
     }
 
     override fun onBackPressed() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
-    override fun onResume() {
-        super.onResume()
-        webView.onResume()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        webView.onPause()
+    private fun openCustomTab(url: String) {
+        CustomTabsIntent.Builder()
+            .setShowTitle(false)
+            .build()
+            .launchUrl(this, Uri.parse(url))
     }
 
     private fun isOnline(): Boolean {
